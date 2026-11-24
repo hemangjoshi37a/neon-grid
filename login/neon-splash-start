@@ -1,0 +1,14 @@
+#!/bin/sh
+# Starts the welcome screen between login and desktop. Called from ~/.xprofile in the background;
+# nothing here can hold up or break the login.
+D="$HOME/.local/share/neon-grid"; C="$HOME/.cache/neon-grid"
+[ -e "$HOME/.config/neon-grid/safe-mode" ] && exit 0
+[ "$XDG_SESSION_TYPE" = x11 ] || exit 0
+case "$XDG_CURRENT_DESKTOP $DESKTOP_SESSION $GDMSESSION" in *[Cc]innamon*) ;; *) exit 0 ;; esac
+[ -x "$D/neon-splash" ] && [ -n "$DISPLAY" ] && [ -n "$XDG_RUNTIME_DIR" ] || exit 0
+# The desktop start script resets this counter: two logins that never got that far = stay away.
+n=$(cat "$C/splash-tries" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0 ;; esac
+[ "$n" -ge 2 ] && exit 0
+echo $((n + 1)) > "$C/splash-tries"
+"$D/neon-splash" </dev/null >/dev/null 2>&1 &
+echo $! > "$XDG_RUNTIME_DIR/neon-splash.pid"

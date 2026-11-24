@@ -1,0 +1,13 @@
+[Unit]
+Description=Neon-Grid: fall back to the stock login screen if it did not work
+DefaultDependencies=yes
+After=local-fs.target dbus.socket
+Before=display-manager.service gdm.service
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/local/lib/neon-grid/neon-safeguard check
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target

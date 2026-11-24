@@ -1,0 +1,2 @@
+# Neon-Grid welcome screen between login and desktop (safe to delete this file)
+[ -x "$HOME/.local/share/neon-grid/neon-splash-start" ] && "$HOME/.local/share/neon-grid/neon-splash-start" >/dev/null 2>&1 &

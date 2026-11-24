@@ -1,0 +1,13 @@
+[Unit]
+Description=Neon-Grid: read the desktop's files into memory while the login screen waits
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/neon-grid/neon-warm
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+[Install]
+WantedBy=default.target

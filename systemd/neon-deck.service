@@ -1,0 +1,11 @@
+[Unit]
+Description=Neon-Grid telemetry collector for the desktop deck
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.config/conky/neon-deck.py
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=default.target

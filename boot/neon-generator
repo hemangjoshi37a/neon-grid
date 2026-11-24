@@ -1,0 +1,20 @@
+#!/bin/sh
+# Neon-Grid: two packaged services hold up the login on this kind of PC. At every boot this writes
+# a corrected copy next to the packaged one (in /run, so nothing on disk changes and package
+# updates are followed). If a file is missing or looks different, it does nothing.
+#  - power-profiles-daemon waits for every boot service; Cinnamon asks it while starting and
+#    hangs for 25 seconds if you log in before that.
+#  - kdump-tools (crash dumps) runs before everything else and can stall the boot for 90 seconds;
+#    it now runs in the background after the login screen is up.
+# Remove /etc/systemd/system-generators/neon-grid to undo.
+out="${2:-}"
+[ -n "$out" ] && [ -d "$out" ] || exit 0
+u=/usr/lib/systemd/system/power-profiles-daemon.service
+if [ ! -e /etc/systemd/system/power-profiles-daemon.service ] && grep -q '^After=multi-user.target display-manager.target$' "$u" 2>/dev/null; then
+    sed 's/^After=multi-user.target display-manager.target$/After=basic.target/' "$u" > "$out/power-profiles-daemon.service"
+fi
+u=/usr/lib/systemd/system/kdump-tools.service
+if [ ! -e /etc/systemd/system/kdump-tools.service ] && grep -q '^Before=basic.target$' "$u" 2>/dev/null && grep -q '^\[Service\]$' "$u"; then
+    sed -e 's/^Before=basic.target$/After=multi-user.target/' -e 's/^\[Service\]$/[Service]\nNice=15\nIOSchedulingClass=idle/' "$u" > "$out/kdump-tools.service"
+fi
+exit 0

@@ -1,0 +1,6 @@
+{
+  "uuid": "neon-opacity@hjlabs",
+  "name": "Neon-Grid window opacity",
+  "description": "Makes chosen app windows (Nemo by default) slightly translucent to match the Neon-Grid rice.",
+  "cinnamon-version": ["6.0", "6.2", "6.4", "6.6"]
+}

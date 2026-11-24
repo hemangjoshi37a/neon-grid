@@ -1,0 +1,25 @@
+[Unit]
+Description=Neon-Grid: boot log on the boot screen
+DefaultDependencies=no
+ConditionPathExists=/run/plymouth/pid
+After=plymouth-start.service systemd-journald.socket
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+ExecStart=/usr/local/lib/neon-grid/neon-bootlog
+Nice=10
+RuntimeMaxSec=260
+TimeoutStopSec=2
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+DevicePolicy=closed
+DeviceAllow=char-input r
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=sysinit.target

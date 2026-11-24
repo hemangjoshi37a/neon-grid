@@ -1,0 +1,10 @@
+[Unit]
+Description=Neon-Grid: note that the login screen works
+After=display-manager.service
+
+[Service]
+Type=simple
+ExecStart=-/usr/local/lib/neon-grid/neon-safeguard ok
+
+[Install]
+WantedBy=graphical.target

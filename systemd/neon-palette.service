@@ -1,0 +1,13 @@
+[Unit]
+Description=Neon-Grid: colours from the wallpaper, whatever it is
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=%h/.config/neon-grid/neon-palette.py watch
+Restart=on-failure
+RestartSec=15
+Nice=10
+
+[Install]
+WantedBy=default.target

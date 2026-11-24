@@ -1,0 +1,8 @@
+[Unit]
+Description=Neon-Grid Search Console sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/neon-grid/.env
+ExecStart=/bin/sh -c 'exec "$${NEON_GSC_PYTHON:-python3}" "%h/.config/conky/neon-gsc.py"'

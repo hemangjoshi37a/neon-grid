@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Neon-Grid
+Description=Wallpaper, Material You colours, Ubuntu and Victus logos
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/neon-grid
+ScriptFile=/usr/share/plymouth/themes/neon-grid/neon-grid.script

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Neon-Grid panic button: back to the stock Cinnamon look. Works from a text console too
+# (Ctrl+Alt+F3, log in, type: neon-safe). Nothing is deleted.
+#   neon-safe          stock theme, no Neon-Grid extensions, no widgets
+#   neon-safe --off    bring Neon-Grid back
+#   neon-safe --system also put login, GRUB and boot screens back to stock (asks for sudo)
+D="$HOME/.config/neon-grid"
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"; export XDG_RUNTIME_DIR
+: "${DBUS_SESSION_BUS_ADDRESS:=unix:path=$XDG_RUNTIME_DIR/bus}"; export DBUS_SESSION_BUS_ADDRESS
+if [ "$1" = "--off" ]; then
+    rm -f "$D/safe-mode"
+    L="['neon-opacity@hjlabs', 'neon-genie@hjlabs', 'neon-motion@hjlabs', 'neon-notify@hjlabs']"
+    [ -s "$D/extensions-before" ] && L="$(cat "$D/extensions-before")"
+    gsettings set org.cinnamon enabled-extensions "$L"
+    gsettings set org.cinnamon startup-animation false
+    gsettings set org.cinnamon.theme name Neon-Grid
+    gsettings set org.cinnamon.desktop.wm.preferences theme Neon-Grid
+    for s in org.cinnamon.desktop.interface org.gnome.desktop.interface; do
+        gsettings set $s gtk-theme Neon-Grid; gsettings set $s icon-theme Papirus-Dark; done
+    "$D/neon-palette.py" refresh --force >/dev/null
+    systemctl --user enable --now neon-palette.service neon-deck.service 2>/dev/null
+    [ -n "$DISPLAY" ] && "$HOME/.config/conky/start.sh"
+    echo "Neon-Grid is back."; exit 0
+fi
+mkdir -p "$D"
+# other people's extensions come back with --off too
+[ -f "$D/safe-mode" ] || gsettings get org.cinnamon enabled-extensions > "$D/extensions-before"
+touch "$D/safe-mode"
+gsettings set org.cinnamon enabled-extensions "[]"
+gsettings reset org.cinnamon startup-animation
+killall -q neon-splash
+gsettings reset org.cinnamon.theme name
+gsettings reset org.cinnamon.desktop.wm.preferences theme
+for s in org.cinnamon.desktop.interface org.gnome.desktop.interface; do
+    gsettings reset $s gtk-theme; gsettings reset $s icon-theme; done
+killall -q conky
+[ "$1" = "--auto" ] || systemctl --user stop neon-palette.service 2>/dev/null
+[ "$1" = "--system" ] && sudo /usr/local/sbin/neon-boot revert
+echo "Safe mode: stock look. Bring Neon-Grid back with: neon-safe --off"

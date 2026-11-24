@@ -1,0 +1,11 @@
+[Unit]
+Description=Neon-Grid: watch for a new wallpaper or palette
+StartLimitIntervalSec=0
+
+[Path]
+PathChanged=@HOME@/.config/neon-grid/palette-state.json
+TriggerLimitIntervalSec=10
+TriggerLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target

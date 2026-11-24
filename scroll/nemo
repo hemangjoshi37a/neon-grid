@@ -1,0 +1,8 @@
+#!/bin/sh
+# Neon-Grid: Nemo with smooth wheel scrolling (this stands before /usr/bin in PATH)
+M="$HOME/.local/share/neon-grid/neon-scroll.so"
+if [ -f "$M" ] && [ ! -e "$HOME/.config/neon-grid/safe-mode" ]; then
+    export NEON_SCROLL_KEEP="$GTK_MODULES"
+    export GTK_MODULES="${GTK_MODULES:+$GTK_MODULES:}$M"
+fi
+exec /usr/bin/nemo "$@"

@@ -1,0 +1,73 @@
+/* Neon-Grid rofi launcher */
+configuration {
+    modi: "drun,run,window";
+    show-icons: true;
+    icon-theme: "Papirus-Dark";
+    display-drun: "APPS";
+    display-run: "RUN";
+    display-window: "WINDOWS";
+    drun-display-format: "{name}";
+    font: "JetBrains Mono 11";
+}
+
+* {
+    bg:      #080a14ee;
+    bg-alt:  #12162aee;
+    fg:      #d6f6ff;
+    dim:     #7a86a8;
+    cyan:    #00f0ff;
+    magenta: #ff2bd6;
+    cyan-soft:    #00f0ff26;
+    magenta-soft: #ff2bd633;
+
+    background-color: transparent;
+    text-color: @fg;
+}
+
+window {
+    width: 620px;
+    background-color: @bg;
+    border: 2px;
+    border-color: @cyan;
+    border-radius: 14px;
+    padding: 18px;
+}
+
+mainbox { spacing: 14px; children: [ inputbar, listview, mode-switcher ]; }
+
+inputbar {
+    background-color: @bg-alt;
+    border: 0 0 2px 0;
+    border-color: @magenta;
+    border-radius: 8px;
+    padding: 10px 14px;
+    spacing: 10px;
+    children: [ prompt, entry ];
+}
+prompt { text-color: @magenta; font: "Orbitron Bold 11"; }
+entry  { placeholder: "search..."; placeholder-color: @dim; cursor: text; }
+
+listview { lines: 8; columns: 1; spacing: 4px; scrollbar: false; fixed-height: true; }
+
+element { padding: 8px 12px; border-radius: 8px; spacing: 12px; }
+element normal.normal, element alternate.normal,
+element normal.active, element alternate.active,
+element normal.urgent, element alternate.urgent {
+    background-color: transparent;
+    text-color: @fg;
+}
+element selected.normal, element selected.active, element selected.urgent {
+    background-color: @cyan-soft;
+    text-color: @cyan;
+    border: 0 0 0 3px;
+    border-color: @cyan;
+}
+element-icon { size: 26px; background-color: transparent; }
+element-text { vertical-align: 0.5; background-color: transparent; text-color: inherit; }
+
+mode-switcher { spacing: 8px; }
+button { padding: 6px; border-radius: 8px; background-color: @bg-alt; text-color: @dim; font: "Orbitron 9"; }
+button selected { background-color: @magenta-soft; text-color: @magenta; }
+
+/* wallpaper colours written by neon-palette (empty = the colours above) */
+@import "neon-palette.rasi"

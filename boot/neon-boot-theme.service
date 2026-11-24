@@ -1,0 +1,19 @@
+[Unit]
+Description=Neon-Grid: wallpaper colours for the login, GRUB and boot screens
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/neon-grid/neon-boot-theme.py --user @USER@
+TimeoutStartSec=120
+Nice=15
+IOSchedulingClass=idle
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=-/usr/local/share/neon-grid -/boot/grub/themes/neon-grid -/usr/share/plymouth/themes/neon-grid

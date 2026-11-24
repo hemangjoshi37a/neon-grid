@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Hides or shows the desktop widgets on all screens.
+
+  neon-widgets hide|show|toggle
+  neon-widgets apply              makes hidden widgets let clicks through (and shown ones catch them)
+"""
+import ctypes as C
+import os
+import sys
+import time
+
+FLAG = os.path.expanduser('~/.cache/neon-grid/widgets-hidden')
+NAMES = (b'neon-panel', b'neon-gsc')
+
+
+def windows(x, dpy, win, depth=0):
+    name = C.c_char_p()
+    if x.XFetchName(dpy, win, C.byref(name)) and name.value:
+        if name.value in NAMES:
+            yield win
+        x.XFree(name)
+    root, parent, kids, n = C.c_ulong(), C.c_ulong(), C.POINTER(C.c_ulong)(), C.c_uint()
+    if depth < 4 and x.XQueryTree(dpy, win, C.byref(root), C.byref(parent), C.byref(kids), C.byref(n)):
+        for k in kids[:n.value]:
+            yield from windows(x, dpy, k, depth + 1)
+        if n.value:
+            x.XFree(kids)
+
+
+def apply(wait=0.0):
+    x, xf = C.CDLL('libX11.so.6'), C.CDLL('libXfixes.so.3')
+    x.XOpenDisplay.restype = C.c_void_p
+    x.XDefaultRootWindow.restype = C.c_ulong
+    x.XDefaultRootWindow.argtypes = [C.c_void_p]
+    x.XFetchName.argtypes = [C.c_void_p, C.c_ulong, C.POINTER(C.c_char_p)]
+    x.XQueryTree.argtypes = [C.c_void_p, C.c_ulong] + [C.c_void_p] * 4
+    x.XFree.argtypes = [C.c_void_p]
+    x.XSync.argtypes = [C.c_void_p, C.c_int]
+    x.XCloseDisplay.argtypes = [C.c_void_p]
+    xf.XFixesCreateRegion.restype = C.c_ulong
+    xf.XFixesCreateRegion.argtypes = [C.c_void_p, C.c_void_p, C.c_int]
+    xf.XFixesQueryExtension.argtypes = [C.c_void_p, C.c_void_p, C.c_void_p]
+    xf.XFixesQueryVersion.argtypes = [C.c_void_p, C.c_void_p, C.c_void_p]
+    xf.XFixesSetWindowShapeRegion.argtypes = [C.c_void_p, C.c_ulong, C.c_int, C.c_int, C.c_int, C.c_ulong]
+    # a window may go away while we look: that is no reason to stop
+    handler = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)(lambda d, e: 0)
+    x.XSetErrorHandler(handler)
+    dpy = x.XOpenDisplay(None)
+    if not dpy:
+        return
+    a, b = C.c_int(), C.c_int()
+    if xf.XFixesQueryExtension(dpy, C.byref(a), C.byref(b)):
+        a.value, b.value = 5, 0
+        xf.XFixesQueryVersion(dpy, C.byref(a), C.byref(b))
+        end = time.monotonic() + wait
+        while True:
+            found = list(windows(x, dpy, x.XDefaultRootWindow(dpy)))
+            empty = xf.XFixesCreateRegion(dpy, None, 0)
+            for w in found:
+                xf.XFixesSetWindowShapeRegion(dpy, w, 2, 0, 0, empty if os.path.exists(FLAG) else 0)
+            x.XSync(dpy, 0)
+            if time.monotonic() >= end:
+                break
+            time.sleep(0.5)
+    x.XCloseDisplay(dpy)
+
+
+what = sys.argv[1] if len(sys.argv) > 1 else ''
+if what not in ('hide', 'show', 'toggle', 'apply'):
+    sys.exit(__doc__)
+if what == 'hide' or (what == 'toggle' and not os.path.exists(FLAG)):
+    os.makedirs(os.path.dirname(FLAG), exist_ok=True)
+    open(FLAG, 'w').close()
+elif what in ('show', 'toggle') and os.path.exists(FLAG):
+    os.remove(FLAG)
+apply(float(sys.argv[2]) if len(sys.argv) > 2 else 0.0)

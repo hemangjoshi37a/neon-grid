@@ -1,0 +1,6 @@
+{
+  "uuid": "neon-notify@hjlabs",
+  "name": "Neon-Grid notifications",
+  "description": "Notifications unfurl as frosted glass, glide away when dismissed, and can be switched off for everything or app by app from the notification panel.",
+  "cinnamon-version": ["6.0", "6.2", "6.4", "6.6"]
+}

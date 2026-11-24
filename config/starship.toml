@@ -1,0 +1,79 @@
+# Neon-Grid starship prompt (plain unicode only, works in any terminal font)
+palette = "neon"
+add_newline = true
+format = """
+[╭─](bold accent)$username$hostname$directory$git_branch$git_status$python$nodejs$rust$golang$docker_context$cmd_duration
+[╰─](bold accent)$character"""
+
+[character]
+success_symbol = "[❯](bold accent2)"
+error_symbol = "[❯](bold bad)"
+
+[username]
+show_always = true
+style_user = "bold accent2"
+style_root = "bold bad"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = true
+style = "bold warn"
+format = "[@$hostname]($style)"
+
+[directory]
+style = "bold accent"
+format = " [$path]($style)[$read_only]($read_only_style)"
+truncation_length = 4
+truncation_symbol = "…/"
+read_only = " ro"
+
+[git_branch]
+symbol = "⎇ "
+style = "bold good"
+format = " [$symbol$branch]($style)"
+
+[git_status]
+style = "bold warn"
+format = "[ $all_status$ahead_behind]($style)"
+
+[python]
+symbol = "py "
+style = "info"
+format = " [$symbol$version( \\($virtualenv\\))]($style)"
+
+[nodejs]
+symbol = "node "
+style = "good"
+format = " [$symbol$version]($style)"
+
+[rust]
+symbol = "rs "
+style = "bad2"
+format = " [$symbol$version]($style)"
+
+[golang]
+symbol = "go "
+style = "info2"
+format = " [$symbol$version]($style)"
+
+[docker_context]
+symbol = "docker "
+style = "info"
+format = " [$symbol$context]($style)"
+
+[cmd_duration]
+min_time = 2000
+style = "muted"
+format = " [$duration]($style)"
+
+# built-in colours; neon-palette adds [palettes.wallpaper] below
+[palettes.neon]
+accent = "#00f0ff"
+accent2 = "#ff2bd6"
+bad = "#ff3b6b"
+bad2 = "#ff6b8f"
+good = "#29ffa3"
+warn = "#f9f871"
+info = "#3d8bff"
+info2 = "#8af8ff"
+muted = "#7a86a8"

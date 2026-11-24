@@ -1,0 +1,8 @@
+{
+  "uuid": "neon-login@hjlabs",
+  "name": "Neon-Grid login motion",
+  "description": "Login screen: an animation from pressing Enter until the desktop's welcome screen takes over.",
+  "session-modes": ["gdm"],
+  "shell-version": ["51"],
+  "url": "https://github.com/hemangjoshi37a/neon-grid-rice"
+}

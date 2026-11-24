@@ -1,0 +1,11 @@
+*credentials*.json
+*.orig
+*.pyc
+__pycache__/
+token.json
+.env
+*.env
+!.env.example
+*key*.json
+*.pem
+screenshots/private/

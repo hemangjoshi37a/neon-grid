@@ -1,0 +1,142 @@
+#!/usr/bin/python3 -I
+"""Feeds the boot log on the Neon-Grid boot screen (Plymouth) and opens it with the Up key.
+
+Runs only while Plymouth shows the boot screen, and ends with it. Reads the journal; from the
+keyboards it looks at one thing only: whether Up (or Down) was pressed, because Plymouth does not
+pass those on. Nothing is stored and nothing is taken away from anybody.
+"""
+import json
+import os
+import selectors
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+KEYS = {103: 'up', 108: 'down'}
+EVENT = struct.Struct('llHHi')
+WIDTH = 118
+END = time.monotonic() + 240
+
+
+def connect():
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(2)
+    s.connect('\0/org/freedesktop/plymouthd')
+    return s
+
+
+def send(s, text):
+    data = text.encode('ascii', 'replace')[:240]
+    s.sendall(b'U\x02' + bytes([len(data) + 1]) + data + b'\0')
+    if not s.recv(16):                      # plymouth answers each one; nothing means it is gone
+        raise OSError
+
+
+def line(j):
+    """(kind, text) of a journal entry worth showing: o done, f failed, w warning."""
+    msg = j.get('MESSAGE')
+    if not isinstance(msg, str):
+        return None
+    try:
+        prio = int(j.get('PRIORITY', 6))
+    except ValueError:
+        prio = 6
+    if j.get('_PID') == '1' and j.get('JOB_TYPE') in ('start', 'restart', 'reload'):
+        result = j.get('JOB_RESULT')
+        if not result or result == 'skipped':
+            return None
+        kind = 'o' if result == 'done' else 'f'
+    elif j.get('_PID') == '1' and prio <= 3:
+        kind = 'f'
+    elif prio <= 3 or (j.get('_TRANSPORT') == 'kernel' and prio <= 4):
+        kind = 'w'
+    else:
+        return None
+    msg = ''.join(c if 32 <= ord(c) < 127 else ' ' for c in msg.split('\n')[0])
+    try:
+        at = int(j.get('__MONOTONIC_TIMESTAMP', 0)) / 1e6
+    except ValueError:
+        at = 0
+    who = str(j.get('SYSLOG_IDENTIFIER') or '')[:14] if j.get('_PID') != '1' else ''
+    who += ': ' if who else ''
+    return kind, ('%8.2f  %s%s' % (at, who, msg))[:WIDTH]
+
+
+def keyboards(sel, known):
+    """Open keyboards that came up since the last look."""
+    for name in os.listdir('/dev/input') if os.path.isdir('/dev/input') else []:
+        if not name.startswith('event') or name in known:
+            continue
+        try:
+            with open(f'/sys/class/input/{name}/device/capabilities/key') as f:
+                words = [int(w, 16) for w in f.read().split()][::-1]
+            bits = sum(w << (64 * i) for i, w in enumerate(words))
+            if bits >> 103 & 1 and bits >> 28 & 1:          # has Up and Enter: a keyboard
+                sel.register(os.open('/dev/input/' + name, os.O_RDONLY | os.O_NONBLOCK), selectors.EVENT_READ, name)
+            known.add(name)
+        except (OSError, ValueError):
+            continue
+
+
+def main():
+    s = connect()
+    journal = subprocess.Popen(['/usr/bin/journalctl', '-b', '-f', '-n', '300', '-o', 'json', '--no-pager',
+                                '--output-fields=MESSAGE,PRIORITY,_PID,_TRANSPORT,JOB_TYPE,JOB_RESULT,SYSLOG_IDENTIFIER'],
+                               stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        os.set_blocking(journal.stdout.fileno(), False)
+        sel = selectors.DefaultSelector()
+        sel.register(journal.stdout.fileno(), selectors.EVENT_READ, 'journal')
+        known, rest, queue, looked, pinged = set(), b'', [], 0.0, time.monotonic()
+        while time.monotonic() < END:
+            now = time.monotonic()
+            if now - looked > 2:
+                keyboards(sel, known)
+                looked = now
+            for key, _ in sel.select(0.02 if queue else 0.4):
+                if key.data == 'journal':
+                    got = os.read(journal.stdout.fileno(), 65536)
+                    if not got:
+                        return
+                    *full, rest = (rest + got).split(b'\n')
+                    for raw in full:
+                        try:
+                            e = line(json.loads(raw))
+                        except (ValueError, AttributeError):
+                            continue
+                        if e:
+                            queue.append(e)
+                    queue = queue[-60:]                     # a flood shows its newest lines
+                    continue
+                try:
+                    data = os.read(key.fd, EVENT.size * 64)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    sel.unregister(key.fd)
+                    os.close(key.fd)
+                    continue
+                for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+                    _, _, kind, code, value = EVENT.unpack_from(data, i)
+                    if kind == 1 and value == 1 and code in KEYS:
+                        send(s, 'neon:k:')
+            if queue:
+                kind, text = queue.pop(0)
+                send(s, 'neon:%s:%s' % (kind, text))
+                pinged = now
+            elif now - pinged > 1:                          # still there?
+                s.sendall(b'P\0')
+                if not s.recv(16):
+                    return
+                pinged = now
+    finally:
+        journal.terminate()
+
+
+try:
+    main()
+except (OSError, KeyboardInterrupt):
+    pass                                                    # Plymouth is gone: so are we
+sys.exit(0)

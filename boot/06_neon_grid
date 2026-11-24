@@ -1,0 +1,13 @@
+#!/bin/sh
+# Neon-Grid: the picture that stays on screen while GRUB loads Linux, so it does not go black.
+# Delete this file and run update-grub to undo. If the picture cannot be shown, nothing changes.
+set -e
+[ -f /boot/grub/themes/neon-grid/boot.png ] || exit 0
+. "${pkgdatadir:-/usr/share/grub}/grub-mkconfig_lib"
+echo 'insmod png'
+prepare_grub_to_access_device "$(${grub_probe:-grub-probe} --target=device /boot/grub/themes/neon-grid)"
+cat <<'EOF'
+if background_image -m stretch ($root)/boot/grub/themes/neon-grid/boot.png; then
+  set color_normal=light-gray/black
+fi
+EOF

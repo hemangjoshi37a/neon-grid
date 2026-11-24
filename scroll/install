@@ -1,0 +1,24 @@
+#!/bin/sh
+# Smooth wheel scrolling for Nemo and GNOME Terminal (no root).   ./install [prebuilt .so]   ./install --remove
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"; NG="$HOME/.local/share/neon-grid"; SO="$NG/neon-scroll.so"
+UNIT="$HOME/.config/systemd/user/gnome-terminal-server.service.d/neon-scroll.conf"
+BUS="$HOME/.local/share/dbus-1/services"
+if [ "$1" = --remove ]; then
+    rm -f "$UNIT" "$SO"
+    grep -qs Neon-Grid "$HOME/.local/bin/nemo" && rm -f "$HOME/.local/bin/nemo"
+    for n in org.Nemo; do grep -qs neon-grid "$BUS/$n.service" && rm -f "$BUS/$n.service"; done
+    systemctl --user daemon-reload; exit 0
+fi
+mkdir -p "$NG" "$HOME/.local/bin" "$BUS" "$(dirname "$UNIT")"
+if [ -n "$1" ]; then install -m 644 "$1" "$SO.new"
+else cc -O2 -shared -fPIC -o "$SO.new" "$HERE/neon-scroll.c" $(pkg-config --cflags --libs gtk+-3.0 gmodule-2.0) -lm; fi
+mv -f "$SO.new" "$SO"
+if [ ! -e "$HOME/.local/bin/nemo" ] || grep -q Neon-Grid "$HOME/.local/bin/nemo"; then install -m 755 "$HERE/nemo" "$HOME/.local/bin/nemo"; fi
+for n in org.Nemo; do
+    [ -e "$BUS/$n.service" ] && ! grep -q neon-grid "$BUS/$n.service" && continue
+    printf '# neon-grid\n[D-BUS Service]\nName=%s\nExec=%s/.local/bin/nemo --no-default-window\n' "$n" "$HOME" > "$BUS/$n.service"
+done
+M="$(systemctl --user show-environment | sed -n 's/^GTK_MODULES=//p')"
+printf '# neon-grid\n[Service]\nEnvironment=NEON_SCROLL_KEEP=%s\nEnvironment=GTK_MODULES=%s%s\n' "$M" "${M:+$M:}" "$SO" > "$UNIT"
+systemctl --user daemon-reload

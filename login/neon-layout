@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Remembers how the monitors are arranged (neon-layout save, from the desktop start script) and
+restores that right after login (neon-layout apply), before the welcome screen shows, so nothing
+jumps when Cinnamon arranges them a few seconds later. Does nothing unless exactly the same
+monitors are connected; Cinnamon still has the last word."""
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+FILE = Path.home() / '.cache/neon-grid/layout.txt'
+
+
+def outputs():
+    """name -> dict for every connected output, without probing the hardware"""
+    text = subprocess.run(['xrandr', '--current'], capture_output=True, text=True, timeout=5).stdout
+    out, cur = {}, None
+    for line in text.splitlines():
+        m = re.match(r'^(\S+) connected( primary)?(?: (\d+)x(\d+)\+(\d+)\+(\d+))?(?: (left|right|inverted))?', line)
+        if m:
+            cur = {'primary': bool(m[2]), 'on': m[3] is not None, 'x': m[5], 'y': m[6], 'rotate': m[7] or 'normal'}
+            out[m[1]] = cur
+        elif line.startswith(' ') and cur is not None:
+            m = re.match(r'^\s+(\d+x\d+)\s+(.*)$', line)
+            r = m and re.search(r'([\d.]+)\*', m[2])
+            if r:
+                cur['mode'], cur['rate'] = m[1], r[1]
+        else:
+            cur = None
+    return out
+
+
+def args(o):
+    a = []
+    for name, v in sorted(o.items()):
+        if v['on'] and 'mode' in v:
+            a += ['--output', name, '--mode', v['mode'], '--rate', v['rate'], '--pos', f"{v['x']}x{v['y']}",
+                  '--rotate', v['rotate']] + (['--primary'] if v['primary'] else [])
+        else:
+            a += ['--output', name, '--off']
+    return a
+
+
+def main():
+    o = outputs()
+    if sys.argv[1:] == ['save']:
+        if any(v['on'] for v in o.values()):
+            FILE.parent.mkdir(parents=True, exist_ok=True)
+            FILE.write_text(' '.join(args(o)) + '\n')
+    elif sys.argv[1:] == ['apply']:
+        a = FILE.read_text().split()
+        if not re.fullmatch(r'(--(output|mode|rate|pos|rotate) [\w.+-]+ ?|--(primary|off) ?)+', ' '.join(a)):
+            return
+        names = [a[i + 1] for i, x in enumerate(a) if x == '--output']
+        if sorted(names) == sorted(o) and args(o) != a:
+            subprocess.run(['xrandr', '--current'] + a, capture_output=True, timeout=6)
+
+
+try:
+    main()
+except Exception:
+    pass

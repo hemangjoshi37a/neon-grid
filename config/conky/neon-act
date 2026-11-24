@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Carries out clicks on the Neon-Grid panel. Every argument is checked against a fixed list or
+the collector's own process list; nothing from the panel is ever run as a command.
+
+  neon-act end|restart|nice <app id>   the app's own processes (never system or desktop ones)
+  neon-act fan AUTO|BETTER_AUTO|MAX    through victus-control
+  neon-act profile power-saver|balanced|performance
+  neon-act open <name>                 one of OPEN below
+"""
+import json
+import os
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+SOCK = "/run/victus-control/victus_backend.sock"
+OPEN = {
+    "monitor": ["kitty", "-e", "btop"],
+    "gpu": ["kitty", "-e", "nvtop"],
+    "files": ["nemo"],
+    "disk": ["baobab", "/"],
+    "network": ["cinnamon-settings", "network"],
+    "power": ["cinnamon-settings", "power"],
+    "settings": ["cinnamon-settings"],
+    "usage": ["xdg-open", "https://claude.ai/settings/usage"],
+    "lock": ["cinnamon-screensaver-command", "--lock"],
+}
+
+
+def say(msg):
+    tmp = RUN + "/neon-act.tmp"
+    with open(tmp, "w") as f:
+        f.write("%d\t%s\n" % (time.time(), msg))
+    os.replace(tmp, RUN + "/neon-act.txt")
+
+
+def app(ident):
+    with open(RUN + "/neon-apps.json") as f:
+        a = json.load(f).get(ident)
+    if not a:
+        raise SystemExit(say("That app is gone"))
+    return a
+
+
+def alive(pid, start):
+    """Still the same process, and mine?"""
+    try:
+        if os.stat("/proc/%d" % pid).st_uid != os.getuid():
+            return False
+        import psutil
+        return abs(psutil.Process(pid).create_time() - start) < 1.5
+    except Exception:
+        return False
+
+
+def main():
+    what, arg = (sys.argv[1:] + ["", ""])[:2]
+    if what == "open" and arg in OPEN:
+        subprocess.Popen(OPEN[arg], start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif what == "end":
+        a = app(arg)
+        if not a["safe"] or a["unit"]:
+            return say("%s is protected" % a["name"])
+        n = 0
+        for pid, start in a["pids"]:
+            if pid not in (1, os.getpid()) and alive(pid, start):
+                os.kill(pid, signal.SIGTERM)
+                n += 1
+        if not n:
+            return say("%s has already gone" % a["name"])
+        say("Asked %s to quit (%d process%s)" % (a["name"], n, "" if n == 1 else "es"))
+    elif what == "restart":
+        a = app(arg)
+        if not a["safe"] or a["unit"] in ("", "system") or not a["unit"].endswith(".service"):
+            return say("%s cannot be restarted from here" % a["name"])
+        r = subprocess.run(["systemctl", "--user", "--no-block", "restart", a["unit"]], capture_output=True)
+        say("Restarting %s" % a["name"] if r.returncode == 0 else "Could not restart %s" % a["name"])
+    elif what == "nice":
+        a = app(arg)
+        if not a["safe"]:
+            return say("%s is protected" % a["name"])
+        for pid, start in a["pids"]:
+            if alive(pid, start):
+                try:
+                    if os.getpriority(os.PRIO_PROCESS, pid) < 10:
+                        os.setpriority(os.PRIO_PROCESS, pid, 10)
+                except OSError:
+                    pass
+        say("%s now gives way to other apps" % a["name"])
+    elif what == "fan" and arg in ("AUTO", "BETTER_AUTO", "MAX"):
+        p = ("SET_FAN_MODE " + arg).encode()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(4)
+            s.connect(SOCK)
+            s.sendall(struct.pack("<I", len(p)) + p)
+            n = struct.unpack("<I", s.recv(4))[0]
+            ok = s.recv(min(n, 4096)).decode(errors="replace").strip() == "OK"
+        say("Fans: " + {"AUTO": "automatic", "BETTER_AUTO": "smart", "MAX": "maximum"}[arg] if ok
+            else "The fan controller refused")
+    elif what == "profile" and arg in ("power-saver", "balanced", "performance"):
+        r = subprocess.run(["powerprofilesctl", "set", arg], capture_output=True)
+        say("Power profile: " + arg if r.returncode == 0 else "Could not change the power profile")
+    else:
+        raise SystemExit(2)
+
+
+try:
+    main()
+except (OSError, ValueError, struct.error) as e:
+    say("That did not work (%s)" % type(e).__name__)

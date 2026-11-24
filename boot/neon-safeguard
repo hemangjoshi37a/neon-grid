@@ -1,0 +1,55 @@
+#!/bin/sh
+# Neon-Grid boot safeguard. Never blocks boot: every path ends in exit 0.
+#   check  (before the login screen) two boots in a row without a working login screen
+#          -> stock login and splash; also rebuilds the login theme after a GNOME update.
+#   ok     (after boot) waits for a live login screen or session, then clears the counter.
+#   stamp  remembers which GNOME/Yaru build the login theme was made from.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+VAR=/var/lib/neon-grid
+GRES=/usr/local/share/neon-grid/neon-grid-gdm.gresource
+GSTOCK=/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource
+PSTOCK=/usr/share/plymouth/themes/bgrt/bgrt.plymouth
+stamp() { { gnome-shell --version 2>/dev/null; sha256sum "$GSTOCK" 2>/dev/null; } | sha256sum | cut -c1-32; }
+stock() {
+    rm -f /usr/share/gdm/dconf/95-neon-grid     # login animation off
+    rm -f /etc/systemd/system-generators/neon-grid
+    [ -x /usr/share/gdm/generate-config ] && timeout 10 /usr/share/gdm/generate-config
+    [ -f "$GSTOCK" ] && update-alternatives --set gdm-theme.gresource "$GSTOCK"
+    [ -f "$PSTOCK" ] && update-alternatives --set default.plymouth "$PSTOCK"
+    echo "$(date '+%F %T') $1" > "$VAR/tripped"; echo 0 > "$VAR/attempts"
+    logger -t neon-safeguard "stock login and splash restored: $1"
+}
+mkdir -p "$VAR"
+case $1 in
+stamp) stamp > "$VAR/login.stamp" ;;
+check)
+    cur=$(readlink -f /usr/share/gnome-shell/gdm-theme.gresource)
+    n=$(cat "$VAR/attempts" 2>/dev/null); case $n in ''|*[!0-9]*) n=0;; esac
+    if [ "$cur" = "$GRES" ]; then
+        if [ "$n" -ge 2 ]; then stock "two boots without a working login screen"; exit 0; fi
+        echo $((n + 1)) > "$VAR/attempts"
+        if [ "$(stamp)" != "$(cat "$VAR/login.stamp" 2>/dev/null)" ]; then
+            if timeout 25 systemctl start neon-boot-theme.service && gresource list "$GRES" 2>/dev/null | grep -q /gdm.css; then
+                stamp > "$VAR/login.stamp"; logger -t neon-safeguard "login theme rebuilt after an update"
+            else
+                stock "GNOME was updated and the login theme could not be rebuilt"
+            fi
+        elif ! gresource list "$GRES" 2>/dev/null | grep -q /gdm.css; then
+            stock "login theme file is damaged"
+        fi
+    fi ;;
+ok)
+    i=0; good=0
+    while [ $i -lt 120 ]; do
+        sleep 5; i=$((i + 1))
+        for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+            info=$(loginctl show-session "$s" -p Class -p Seat -p State 2>/dev/null)
+            case "$info" in
+            *Class=user*Seat=seat0*|*Seat=seat0*Class=user*) good=99 ;;
+            *Class=greeter*) pgrep -u "$(loginctl show-session "$s" -p User --value)" -f gnome-shell >/dev/null 2>&1 && good=$((good + 1)) ;;
+            esac
+        done
+        [ $good -ge 6 ] && { echo 0 > "$VAR/attempts"; exit 0; }
+    done ;;
+esac
+exit 0

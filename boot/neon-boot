@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# Neon-Grid login / GRUB / boot+shutdown screens.
+#   sudo neon-boot install [login] [grub] [splash] [speed]   (no names = all)
+#   sudo neon-boot revert  [login] [grub] [splash] [speed]   back to stock
+#   neon-boot status
+# Every step checks its own result and undoes itself if something is off. Only theme files
+# are added; nothing belonging to a package is edited, so package updates can't conflict.
+set -uo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+LIB=/usr/local/lib/neon-grid
+VAR=/var/lib/neon-grid
+GRES=/usr/local/share/neon-grid/neon-grid-gdm.gresource
+GLINK=/usr/share/gnome-shell/gdm-theme.gresource
+GSTOCK=/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource
+PLY=/usr/share/plymouth/themes/neon-grid
+PSTOCK=/usr/share/plymouth/themes/bgrt/bgrt.plymouth
+GTHEME=/boot/grub/themes/neon-grid
+GCFG=/etc/default/grub.d/zz-neon-grid.cfg
+GEN=/etc/systemd/system-generators/neon-grid
+LEXT=/usr/local/share/gnome-shell/extensions/neon-login@hjlabs
+LCONF=/usr/share/gdm/dconf/95-neon-grid
+KV="$(uname -r)"; IMG="/boot/initrd.img-$KV"
+say() { printf '\033[1m%s\033[0m\n' "$*"; }
+die() { printf 'neon-boot: %s\n' "$*" >&2; exit 1; }
+alt() { update-alternatives --query "$1" 2>/dev/null | sed -n 's/^Value: //p'; }
+free_mb() { echo $(( $(df -Pk "$1" | awk 'NR==2{print $4}') / 1024 )); }
+
+status() {
+    echo "login : $(alt gdm-theme.gresource)"
+    echo "splash: $(alt default.plymouth)"
+    echo "grub  : $([ -f "$GCFG" ] && echo "$GTHEME" || echo stock)"
+    echo "guard : boots without a working login so far: $(cat $VAR/attempts 2>/dev/null || echo 0)$([ -f $VAR/tripped ] && echo "; TRIPPED $(cat $VAR/tripped)")"
+}
+
+generate() { systemctl reset-failed neon-boot-theme.service 2>/dev/null; systemctl start neon-boot-theme.service; [ "$(systemctl show -p Result --value neon-boot-theme.service)" = success ]; }
+
+common() {
+    here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+    [ -f "$here/neon-boot-theme.py" ] || die "run the copy in neon-grid-rice/boot"
+    user="${SUDO_USER:-}"; [ -n "$user" ] && [ "$user" != root ] || die "run it with sudo from your own account"
+    home="$(getent passwd "$user" | cut -d: -f6)"
+    [ "$(free_mb /boot)" -ge 4096 ] || die "less than 4 GB free; nothing changed"
+    /usr/bin/python3 -I -c 'import PIL, numpy' 2>/dev/null || apt-get install -y python3-pil python3-numpy || die "python3-pil / python3-numpy missing"
+    command -v glib-compile-resources >/dev/null || apt-get install -y libglib2.0-dev-bin || die "glib-compile-resources missing"
+    install -d -m 755 "$LIB" "$VAR"
+    tmp="$(sudo -u "$user" mktemp)"
+    sudo -u "$user" python3 "$here/make_masks.py" "$tmp" || die "could not draw the logos; nothing changed"
+    [ -f "$tmp.npz" ] && { install -m 644 "$tmp.npz" "$LIB/masks.npz"; rm -f "$tmp.npz"; } || install -m 644 "$tmp" "$LIB/masks.npz"
+    rm -f "$tmp"
+    install -m 755 "$here/neon-boot-theme.py" "$here/neon-safeguard" "$LIB/"
+    install -m 644 "$here/gdm.css.in" "$here/grub-theme.txt.in" "$LIB/"
+    install -m 755 "$here/neon-boot" /usr/local/sbin/neon-boot
+    for u in neon-boot-theme.service neon-boot-theme.path neon-safeguard.service neon-safeguard-ok.service; do
+        sed "s|@USER@|$user|g; s|@HOME@|$home|g" "$here/$u" > "/etc/systemd/system/$u"; chmod 644 "/etc/systemd/system/$u"
+    done
+    systemctl daemon-reload
+    systemctl enable -q neon-boot-theme.path neon-safeguard.service neon-safeguard-ok.service
+    systemctl start neon-boot-theme.path
+    rm -f $VAR/tripped; echo 0 > $VAR/attempts
+}
+
+install_login() {
+    say "Login screen"
+    [ -f "$GSTOCK" ] || { echo "Yaru login theme not found; skipped"; return 1; }
+    install -d -m 755 "$(dirname $GRES)" /usr/local/share/fonts/neon-grid
+    install -m 644 "$here/../fonts/Orbitron.ttf" /usr/local/share/fonts/neon-grid/ && fc-cache -f /usr/local/share/fonts
+    [ -f "$GRES" ] && cp -p "$GRES" "$VAR/login.previous" || cp "$GSTOCK" "$GRES"
+    if generate && gresource extract "$GRES" /org/gnome/shell/theme/gdm.css 2>/dev/null | grep 'Neon-Grid login screen' >/dev/null; then
+        update-alternatives --install "$GLINK" gdm-theme.gresource "$GRES" 20 >/dev/null
+        update-alternatives --set gdm-theme.gresource "$GRES" >/dev/null
+        "$LIB/neon-safeguard" stamp
+        # the animation from pressing Enter (a GNOME extension; GNOME skips it on other versions)
+        if [ -f "$here/../login/greeter/neon-login@hjlabs/extension.js" ] && [ -d "$(dirname "$LCONF")" ]; then
+            install -d -m 755 "$LEXT"
+            install -m 644 "$here/../login/greeter/neon-login@hjlabs/"* "$LEXT/"
+            printf '%s\n' '# Neon-Grid login animation. Delete this file and run /usr/share/gdm/generate-config to undo.' \
+                '[org/gnome/shell]' "enabled-extensions=['neon-login@hjlabs']" 'disable-user-extensions=false' > "$LCONF"
+            chmod 644 "$LCONF"
+            /usr/share/gdm/generate-config >/dev/null 2>&1 || { rm -f "$LCONF"; /usr/share/gdm/generate-config >/dev/null 2>&1; echo "login animation skipped"; }
+        fi
+        echo "ok (shows at the next log out or reboot)"
+    else
+        echo "build failed; stock login screen kept"; revert_login; return 1
+    fi
+}
+revert_login() { rm -f "$LCONF"; [ -x /usr/share/gdm/generate-config ] && /usr/share/gdm/generate-config >/dev/null 2>&1; rm -f "$LEXT/extension.js" "$LEXT/metadata.json"; [ -f "$GSTOCK" ] && update-alternatives --set gdm-theme.gresource "$GSTOCK" >/dev/null && echo "login: stock"; }
+
+install_grub() {
+    say "GRUB"
+    [ -f /boot/grub/grub.cfg ] || { echo "no GRUB here; skipped"; return 1; }
+    cp -p /boot/grub/grub.cfg "$VAR/grub.cfg.before"
+    before=$(grep -cE '^[[:space:]]*menuentry ' /boot/grub/grub.cfg)
+    install -d -m 755 "$GTHEME"
+    for s in 16 20; do
+        grub-mkfont -s $s -n NeonMono -o "$GTHEME/neon$s.pf2" -r 32-126,160-255,8211-8230 \
+            /usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Regular.ttf 2>/dev/null || { echo "font failed"; revert_grub; return 1; }
+    done
+    generate && [ -s "$GTHEME/theme.txt" ] || { echo "theme build failed"; revert_grub; return 1; }
+    install -d /etc/default/grub.d
+    printf '%s\n' '# Neon-Grid: themed menu for 3 seconds. Delete this file and run update-grub to undo.' \
+        "[ -f $GTHEME/theme.txt ] && GRUB_THEME=$GTHEME/theme.txt" \
+        'GRUB_TIMEOUT_STYLE=menu' 'GRUB_TIMEOUT=3' 'GRUB_GFXMODE=1920x1080,auto' > "$GCFG"
+    install -m 755 "$here/06_neon_grid" /etc/grub.d/06_neon_grid      # the picture while Linux loads
+    if update-grub >/dev/null 2>"$VAR/update-grub.log" && grub-script-check /boot/grub/grub.cfg &&
+       [ "$(grep -cE '^[[:space:]]*menuentry ' /boot/grub/grub.cfg)" -ge "$before" ] &&
+       grep -q 'themes/neon-grid/theme.txt' /boot/grub/grub.cfg; then
+        echo "ok ($before boot entries, all still there)"
+    else
+        echo "GRUB check failed; previous menu restored"
+        rm -f "$GCFG" /etc/grub.d/06_neon_grid; cp -p "$VAR/grub.cfg.before" /boot/grub/grub.cfg; return 1
+    fi
+}
+revert_grub() {
+    if [ -f "$GCFG" ]; then
+        rm -f "$GCFG" /etc/grub.d/06_neon_grid
+        update-grub >/dev/null 2>&1 && grub-script-check /boot/grub/grub.cfg || cp -p "$VAR/grub.cfg.before" /boot/grub/grub.cfg
+    fi
+    rm -rf "$GTHEME"; echo "grub: stock"
+}
+
+install_splash() {
+    say "Boot and shutdown screens"
+    [ -f /usr/lib/x86_64-linux-gnu/plymouth/script.so ] || { echo "Plymouth script plugin missing; skipped"; return 1; }
+    install -d -m 755 "$PLY"
+    install -m 644 "$here/neon-grid.plymouth" "$here/neon-grid.script" "$PLY/"
+    install -m 755 "$here/neon-bootlog" "$LIB/"
+    install -m 644 "$here/neon-bootlog.service" /etc/systemd/system/
+    systemctl daemon-reload && systemctl enable -q neon-bootlog.service
+    generate && [ -s "$PLY/bg.png" ] && [ -s "$PLY/cof-239.png" ] || { echo "images failed"; return 1; }
+    old=$(stat -c %s "$IMG"); oldk=$(lsinitrd "$IMG" 2>/dev/null | grep -c '\.ko')
+    update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$PLY/neon-grid.plymouth" 100 >/dev/null
+    update-alternatives --set default.plymouth "$PLY/neon-grid.plymouth" >/dev/null
+    # the new boot image is built beside the one in use, checked, and only then put in its place
+    new=/boot/neon-new; rm -f "$new/initrd.img-$KV"; install -d -m 700 "$new"
+    echo "building the boot image for $KV (a minute)..."
+    if update-initramfs -c -k "$KV" -b "$new" >"$VAR/initramfs.log" 2>&1 && [ -s "$new/initrd.img-$KV" ] &&
+       lsinitrd "$new/initrd.img-$KV" > "$VAR/initrd.list" 2>/dev/null &&
+       grep -q 'plymouth/themes/neon-grid/bg.png' "$VAR/initrd.list" && grep -q 'plymouth/script.so' "$VAR/initrd.list" &&
+       grep -q 'usr/lib/systemd/systemd$' "$VAR/initrd.list" &&
+       [ "$(grep -c '\.ko' "$VAR/initrd.list")" -ge $((oldk * 95 / 100)) ] &&
+       [ "$(stat -c %s "$new/initrd.img-$KV")" -ge $((old * 8 / 10)) ] &&
+       cp -p "$IMG" "$VAR/initrd.before"; then
+        sync; chmod 600 "$new/initrd.img-$KV"; mv -f "$new/initrd.img-$KV" "$IMG"; rmdir "$new"; sync
+        echo "ok ($(grep -c '\.ko' "$VAR/initrd.list") drivers, before: $oldk; previous image kept as $VAR/initrd.before)"
+    else
+        echo "boot image check failed; the one in use was not touched (log: $VAR/initramfs.log)"
+        rm -f "$new/initrd.img-$KV"; rmdir "$new" 2>/dev/null
+        update-alternatives --set default.plymouth "$PSTOCK" >/dev/null
+        return 1
+    fi
+}
+revert_splash() {
+    systemctl disable -q --now neon-bootlog.service 2>/dev/null; rm -f /etc/systemd/system/neon-bootlog.service; systemctl daemon-reload
+    [ -f "$PSTOCK" ] && update-alternatives --set default.plymouth "$PSTOCK" >/dev/null
+    [ "${1:-}" = quick ] || update-initramfs -u -k "$KV" >/dev/null 2>&1
+    echo "splash: stock"
+}
+
+install_speed() {
+    say "Boot order"
+    install -d -m 755 "$(dirname $GEN)"
+    install -m 755 "$here/neon-generator" "$GEN"
+    if systemctl daemon-reload && [ "$(systemctl show -p LoadState --value power-profiles-daemon.service)" = loaded ]; then
+        for u in power-profiles-daemon kdump-tools; do
+            [ -f "/run/systemd/generator.early/$u.service" ] && echo "ok: $u no longer holds up the login" || echo "$u: nothing to change"
+        done
+    else
+        echo "check failed; undone"; revert_speed; return 1
+    fi
+}
+revert_speed() { rm -f "$GEN"; systemctl daemon-reload; echo "boot order: stock"; }
+
+cmd="${1:-status}"; shift || true
+[ "$cmd" = status ] && { status; exit 0; }
+[ "$(id -u)" = 0 ] || exec sudo "$(readlink -f "$0")" "$cmd" "$@"
+parts=("$@"); [ ${#parts[@]} -gt 0 ] || parts=(login grub splash speed)
+for p in "${parts[@]}"; do case $p in login|grub|splash|speed) ;; *) die "unknown part: $p";; esac; done
+rc=0
+case $cmd in
+install) common; for p in "${parts[@]}"; do "install_$p" || rc=1; done; echo; status; exit $rc ;;
+revert)
+    for p in "${parts[@]}"; do "revert_$p"; done
+    if [ ${#parts[@]} -eq 4 ]; then
+        systemctl disable -q --now neon-boot-theme.path neon-safeguard.service neon-safeguard-ok.service 2>/dev/null
+    fi ;;
+*) sed -n 2,7p "$0"; exit 1 ;;
+esac

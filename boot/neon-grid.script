@@ -1,0 +1,376 @@
+// Neon-Grid Plymouth theme: wallpaper, Material You colours, the distribution's and the machine's logo.
+// Everything moves live (~50 Hz); images come from neon-boot-theme.py at 1920x1080 scale.
+// During boot the copies inside the boot image show first; once the real disk is mounted
+// the fresh ones replace them one by one.
+
+fun fmod(a, n) { return a - Math.Int(a / n) * n; }
+fun pad2(i) { if (i < 10) return "0" + i; return "" + i; }
+fun pad3(i) { if (i < 10) return "00" + i; if (i < 100) return "0" + i; return "" + i; }
+
+SW = Window.GetWidth();
+SH = Window.GetHeight();
+SC = Math.Min(SW / 1920, SH / 1080);
+PI = 3.14159265;
+SHAPES = 48;
+COFS = 240;
+
+Window.SetBackgroundTopColor(0.03, 0.03, 0.03);
+Window.SetBackgroundBottomColor(0.03, 0.03, 0.03);
+
+fun load_bg() {                             // covers the screen: crops, never stretches
+    img = Image("bg.png");
+    if (!img) return img;
+    k = Math.Max(SW / img.GetWidth(), SH / img.GetHeight());
+    if (k != 1) img = img.Scale(Math.Int(img.GetWidth() * k + 0.5), Math.Int(img.GetHeight() * k + 0.5));
+    return img;
+}
+fun load(name) {
+    img = Image(name);
+    if (img && SC != 1)
+        img = img.Scale(Math.Max(1, Math.Int(img.GetWidth() * SC + 0.5)), Math.Max(1, Math.Int(img.GetHeight() * SC + 0.5)));
+    return img;
+}
+
+mode = Plymouth.GetMode();
+sub_name = "sub-boot.png";
+is_boot = 1;
+if (mode == "shutdown") { sub_name = "sub-shutdown.png"; is_boot = 0; }
+if (mode == "reboot") { sub_name = "sub-reboot.png"; is_boot = 0; }
+if (mode == "updates" || mode == "system-upgrade" || mode == "firmware-upgrade") sub_name = "sub-updates.png";
+
+bg = Sprite();
+fun place_bg(img) {
+    bg.SetImage(img);
+    bg.SetPosition(SW / 2 - img.GetWidth() / 2, SH / 2 - img.GetHeight() / 2, -10);
+}
+first_bg = load_bg();
+if (first_bg) place_bg(first_bg);
+
+for (i = 0; i < SHAPES; i++) {
+    shape_a[i] = load("shape-a-" + pad2(i) + ".png");
+    shape_b[i] = load("shape-b-" + pad2(i) + ".png");
+}
+for (i = 0; i < COFS; i++) cof_img[i] = load("cof-" + pad3(i) + ".png");
+vic_img = load("oem.png");
+sub_img = load(sub_name);
+wave_on = load("wave-on.png");
+wave_off = load("wave-off.png");
+orbit_a = load("orbit-a.png");
+orbit_b = load("orbit-b.png");
+
+CX = SW / 2;
+CY = SH * 0.42;
+shape_half = shape_a[0].GetWidth() / 2;
+cof_half = cof_img[0].GetWidth() / 2;
+orbit_half = orbit_a.GetWidth() / 2;
+
+sa = Sprite(); sb = Sprite(); cof = Sprite(); vic = Sprite();
+sa.SetZ(10); sb.SetZ(10); cof.SetZ(12); vic.SetZ(12);
+vic.SetImage(vic_img);
+sub = Sprite(sub_img);
+sub.SetPosition(CX - sub_img.GetWidth() / 2, CY + 235 * SC, 10);
+
+ORBITS = 6;
+for (i = 0; i < ORBITS; i++) {
+    orb[i] = Sprite();
+    if (i < 3) orb[i].SetImage(orbit_a); else orb[i].SetImage(orbit_b);
+}
+
+// wavy progress line
+DOTS = 112;
+STEP = 5 * SC;
+wave_x = CX - DOTS * STEP / 2;
+wave_y = CY + 330 * SC;
+for (i = 0; i < DOTS; i++) {
+    dots[i] = Sprite();
+    dots[i].SetImage(wave_off);
+    dot_on[i] = 0;
+}
+
+global.tick = 0;
+global.progress = 0;
+global.shown = 0;
+global.helper = 0;
+global.log_shown = 0;
+global.fresh = -1;       // >= 0 while reloading images from the real disk
+
+fun reload_one(n) {      // a missing file keeps the old picture; returns 0 when finished
+    if (n == 0) { img = load_bg(); if (img) place_bg(img); return 1; }
+    if (n == 1) { img = load(sub_name); if (img) sub.SetImage(img); return 1; }
+    if (n == 2) { img = load("oem.png"); if (img) vic.SetImage(img); return 1; }
+    if (n == 3) {
+        img = load("orbit-a.png"); if (img) for (i = 0; i < 3; i++) orb[i].SetImage(img);
+        img = load("orbit-b.png"); if (img) for (i = 3; i < ORBITS; i++) orb[i].SetImage(img);
+        return 1;
+    }
+    if (n == 4) {
+        img = load("wave-on.png"); if (img) global.wave_on = img;
+        img = load("wave-off.png"); if (img) global.wave_off = img;
+        for (i = 0; i < DOTS; i++) dot_on[i] = -1;
+        return 1;
+    }
+    n = n - 5;
+    if (n < SHAPES) { img = load("shape-a-" + pad2(n) + ".png"); if (img) shape_a[n] = img; return 1; }
+    n = n - SHAPES;
+    if (n < SHAPES) { img = load("shape-b-" + pad2(n) + ".png"); if (img) shape_b[n] = img; return 1; }
+    n = n - SHAPES;
+    if (n < COFS) { img = load("cof-" + pad3(n) + ".png"); if (img) cof_img[n] = img; return 1; }
+    return 0;
+}
+
+fun draw_wave(t, fade) {
+    if (is_boot) {
+        global.shown = global.shown + (global.progress - global.shown) * 0.06;
+        lo = -1;
+        hi = global.shown * DOTS;
+    } else {                                 // a segment travelling along the line
+        c = fmod(t * 1.1, DOTS + 50) - 25;
+        lo = c - 25;
+        hi = c + 25;
+    }
+    for (i = 0; i < DOTS; i++) {
+        on = 0;
+        if (i > lo && i < hi) on = 1;
+        amp = 0;
+        if (on) {                            // the wave flattens towards its ends
+            amp = Math.Min(1, (hi - i) / 8);
+            if (!is_boot) amp = Math.Min(amp, (i - lo) / 8);
+        }
+        if (on != dot_on[i]) {
+            if (on) dots[i].SetImage(wave_on); else dots[i].SetImage(wave_off);
+            dot_on[i] = on;
+        }
+        dots[i].SetPosition(wave_x + i * STEP, wave_y + amp * 8 * SC * Math.Sin(i * 0.62 - t * 0.11), 10);
+        dots[i].SetOpacity(fade);
+    }
+}
+
+fun refresh_cb() {
+    global.tick = global.tick + 1;
+    t = global.tick;
+    fade = Math.Min(1, t / 35);
+
+    // intro: both shapes start together and spring apart
+    k = Math.Min(1, t / 60);
+    spring = 1 - (1 - k) * (1 - k) * (1 - k) * Math.Cos(k * 5);
+    gap = 165 * SC * spring;
+    if (!is_boot) gap = gap * (0.97 + 0.03 * Math.Cos(t * 0.05));
+    bob = 5 * SC * Math.Sin(t * 0.04);
+
+    n = fmod(t, SHAPES);
+    sa.SetImage(shape_a[n]);
+    sb.SetImage(shape_b[SHAPES - 1 - n]);
+    sa.SetX(CX - gap - shape_half); sa.SetY(CY + bob - shape_half);
+    sb.SetX(CX + gap - shape_half); sb.SetY(CY - bob - shape_half);
+    cof.SetImage(cof_img[fmod(t, COFS)]);
+    cof.SetX(CX - gap - cof_half); cof.SetY(CY + bob - cof_half);
+    vic.SetX(CX + gap - vic_img.GetWidth() / 2); vic.SetY(CY - bob - vic_img.GetHeight() / 2 + 6 * SC);
+    sa.SetOpacity(fade); sb.SetOpacity(fade); cof.SetOpacity(fade); vic.SetOpacity(fade); sub.SetOpacity(fade);
+
+    for (i = 0; i < ORBITS; i++) {
+        side = -1; dir = 1; yb = bob;
+        if (i >= 3) { side = 1; dir = -1; yb = 0 - bob; }
+        a = dir * t * 0.028 + i * 2 * PI / 3;
+        r = (shape_half + 12 * SC) + 6 * SC * Math.Sin(t * 0.05 + i);
+        orb[i].SetPosition(CX + side * gap + r * Math.Cos(a) - orbit_half, CY + yb + r * Math.Sin(a) - orbit_half, 11);
+        orb[i].SetOpacity(fade);
+    }
+    draw_wave(t, fade);
+    draw_log(t, fade);
+
+    if (global.fresh >= 0) {
+        more = reload_one(global.fresh);
+        if (more && global.fresh > 4) { global.fresh = global.fresh + 1; more = reload_one(global.fresh); }
+        global.fresh = global.fresh + 1;
+        if (!more) global.fresh = -1;
+    }
+}
+Plymouth.SetRefreshFunction(refresh_cb);
+
+fun progress_cb(duration, progress) {
+    if (progress > global.progress) global.progress = progress;
+}
+Plymouth.SetBootProgressFunction(progress_cb);
+
+fun root_cb() { if (is_boot) global.fresh = 0; }
+Plymouth.SetRootMountedFunction(root_cb);
+
+fun quit_cb() { global.progress = 1; }
+Plymouth.SetQuitFunction(quit_cb);
+
+// messages, passwords and questions
+msg = Sprite();
+fun message_cb(text) {
+    img = Image.Text(text, 0.92, 0.92, 0.90, 1, "Sans 14");
+    msg.SetImage(img);
+    msg.SetPosition(CX - img.GetWidth() / 2, SH * 0.93, 20);
+    msg.SetOpacity(1);
+}
+Plymouth.SetDisplayMessageFunction(message_cb);
+fun hide_message_cb(text) { msg.SetOpacity(0); }
+Plymouth.SetHideMessageFunction(hide_message_cb);
+
+// ---- boot log. One line is always shown under the wave; Tab (or Up, through neon-bootlog) opens
+// the rest on glass. Esc is Plymouth's own: the full text.
+LOG_N = 30;                                  // lines on the panel
+LOG_H = 22 * SC;
+log_img = load("log-panel.png");
+log_panel = Sprite();
+if (log_img) {
+    log_panel.SetImage(log_img);
+    log_panel.SetOpacity(0);
+}
+LX = SW / 2 - 660 * SC;
+LY = SH / 2 - 390 * SC;
+log_panel.SetPosition(LX, LY, 25);
+log_size = 10 * SC;
+if (log_size < 7) log_size = 7;
+log_font = "Monospace " + log_size;
+for (i = 0; i <= LOG_N; i++) {
+    log_line[i] = Sprite();
+    log_line[i].SetOpacity(0);
+    log_line[i].SetZ(26);
+    log_img_of[i] = 0;
+    log_text[i] = "";
+    log_kind[i] = "i";
+}
+hint_img = 0;
+hint = Sprite();
+if (is_boot) {
+    hint_img = load("hint.png");
+    if (hint_img) {
+        hint.SetImage(hint_img);
+        hint.SetPosition(CX - hint_img.GetWidth() / 2, SH * 0.955, 9);
+        hint.SetOpacity(0);
+    }
+}
+now_line = Sprite();
+now_line.SetOpacity(0);
+global.log_count = 0;                        // lines so far
+global.log_top = 0;                          // scrolled to here (eases)
+global.log_on = 0;
+global.log_v = 0;                            // 0 closed, 1 open
+global.log_drawn = 0;                        // lines that have their picture
+global.now_text = "";
+global.now_kind = "i";
+global.now_new = 0;
+global.now_at = 0;
+
+fun ease_io(x) { return x * x * (3 - 2 * x); }
+fun log_text_image(text, kind) {
+    if (kind == "f") return Image.Text(text, 1.0, 0.42, 0.45, 1, log_font);
+    if (kind == "w") return Image.Text(text, 0.98, 0.78, 0.36, 1, log_font);
+    if (kind == "i") return Image.Text(text, 0.70, 0.70, 0.72, 1, log_font);
+    return Image.Text(text, 0.93, 0.93, 0.94, 1, log_font);
+}
+fun log_add(kind, text) {
+    slot = fmod(global.log_count, LOG_N + 1);
+    log_text[slot] = text;
+    log_kind[slot] = kind;
+    global.log_count = global.log_count + 1;
+    if (kind != "w") { global.now_text = text; global.now_kind = kind; global.now_new = 1; }
+}
+fun toggle_log() {
+    if (log_img) global.log_on = 1 - global.log_on;
+}
+fun status_cb(status) {
+    st = String(status);
+    if (st.SubString(0, 5) == "neon:") {
+        kind = st.CharAt(5);
+        if (kind == "k") toggle_log();
+        else log_add(kind, st.SubString(7, st.Length()));
+        global.helper = 1;
+    } else if (!global.helper) {             // before the helper runs: what systemd itself reports
+        log_add("i", st);
+    }
+}
+Plymouth.SetUpdateStatusFunction(status_cb);
+fun key_cb(entry, key) {
+    if (key == "	" && is_boot) toggle_log();
+    return 1;
+}
+Plymouth.SetValidateInputFunction(key_cb);
+
+fun draw_log(t, fade) {
+    if (hint_img) hint.SetOpacity(fade * Math.Max(0, Math.Min(1, (t - 60) / 60)) * (1 - global.log_v));
+    // the line under the wave
+    if (global.now_new && t - global.now_at > 7) {
+        img = log_text_image(global.now_text, global.now_kind);
+        now_line.SetImage(img);
+        now_line.SetPosition(CX - img.GetWidth() / 2, wave_y + 46 * SC, 9);
+        global.now_new = 0;
+        global.now_at = t;
+    }
+    if (global.now_at > 0) now_line.SetOpacity(0.85 * fade * (1 - global.log_v));
+    // the panel
+    step = 0.055;
+    if (global.log_on) global.log_v = Math.Min(1, global.log_v + step);
+    else global.log_v = Math.Max(0, global.log_v - step);
+    v = ease_io(global.log_v);
+    if (global.log_v <= 0 && !global.log_on) {
+        if (global.log_shown) {
+            log_panel.SetOpacity(0);
+            for (i = 0; i <= LOG_N; i++) log_line[i].SetOpacity(0);
+            global.log_shown = 0;
+        }
+        return;
+    }
+    global.log_shown = 1;
+    log_panel.SetOpacity(v);
+    rise = 26 * SC * (1 - v);
+    log_panel.SetPosition(LX, LY + rise, 25);
+    // pictures of new lines, a few for each frame
+    first = Math.Max(0, global.log_count - LOG_N - 1);
+    if (global.log_drawn < first) global.log_drawn = first;
+    made = 0;
+    while (global.log_drawn < global.log_count && made < 3) {
+        slot = fmod(global.log_drawn, LOG_N + 1);
+        img = log_text_image(log_text[slot], log_kind[slot]);
+        log_line[slot].SetImage(img);
+        global.log_drawn = global.log_drawn + 1;
+        made = made + 1;
+    }
+    want = Math.Max(0, global.log_drawn - LOG_N);
+    global.log_top = global.log_top + (want - global.log_top) * 0.16;
+    if (want - global.log_top > 4) global.log_top = want - 4;
+    for (k = first; k < global.log_drawn; k++) {
+        slot = fmod(k, LOG_N + 1);
+        row = k - global.log_top;
+        o = v;
+        if (row < 0) o = v * Math.Max(0, 1 + row);
+        if (row > LOG_N - 1) o = v * Math.Max(0, LOG_N - row);
+        log_line[slot].SetPosition(LX + 34 * SC, LY + rise + 76 * SC + row * LOG_H, 26);
+        log_line[slot].SetOpacity(o);
+    }
+}
+
+bullet_img = load("orbit-a.png");
+prompt = Sprite();
+for (i = 0; i < 32; i++) bullets[i] = Sprite();
+fun show_prompt(text, count) {
+    global.log_on = 0;                       // a question is never hidden by the log
+    p = Image.Text(text, 0.92, 0.92, 0.90, 1, "Sans 16");
+    prompt.SetImage(p);
+    prompt.SetPosition(CX - p.GetWidth() / 2, wave_y + 60 * SC, 30);
+    prompt.SetOpacity(1);
+    bw = bullet_img.GetWidth() * 1.4;
+    n = Math.Min(count, 32);
+    for (i = 0; i < 32; i++) {
+        if (i < n) {
+            bullets[i].SetImage(bullet_img);
+            bullets[i].SetPosition(CX - n * bw / 2 + i * bw, wave_y + 110 * SC, 31);
+            bullets[i].SetOpacity(1);
+        } else {
+            bullets[i].SetOpacity(0);
+        }
+    }
+}
+fun password_cb(text, count) { show_prompt(text, count); }
+Plymouth.SetDisplayPasswordFunction(password_cb);
+fun question_cb(text, answer) { show_prompt(text + "  " + answer, 0); }
+Plymouth.SetDisplayQuestionFunction(question_cb);
+fun normal_cb() {
+    prompt.SetOpacity(0);
+    for (i = 0; i < 32; i++) bullets[i].SetOpacity(0);
+}
+Plymouth.SetDisplayNormalFunction(normal_cb);

@@ -1,0 +1,86 @@
+
+/* ===== Neon-Grid login screen: wallpaper + Material You ===== */
+#lockDialogGroup {
+  background-color: @bg@;
+  background-image: url("resource:///org/gnome/shell/theme/neon-login.png");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center; }
+
+.login-dialog, .unlock-dialog { color: @text@; background-color: transparent; }
+
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item {
+  color: @text@;
+  background-color: rgba(@bg_alt_rgb@, 0.82);
+  border: none;
+  border-radius: 28px;
+  padding: 12px; }
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item:hover {
+  color: @on_primary_container@;
+  background-color: rgba(@line_rgb@, 0.92);
+  border: none; }
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item:selected,
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item:focus {
+  color: @on_primary_container@;
+  background-color: rgba(@primary_container_rgb@, 0.94);
+  border: none;
+  box-shadow: none !important; }
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item:active {
+  background-color: @tertiary_container@; }
+.login-dialog-user-list-view .login-dialog-user-list .login-dialog-user-list-item .user-icon,
+.login-dialog .user-icon, .unlock-dialog .user-icon {
+  border: 3px solid @primary@;
+  box-shadow: none; }
+.login-dialog .user-widget-label, .unlock-dialog .user-widget-label,
+.unlock-dialog .user-widget.horizontal .user-widget-label {
+  font-weight: bold;
+  color: @text@; }
+
+.login-dialog .login-dialog-prompt-entry, .unlock-dialog .login-dialog-prompt-entry {
+  color: @text@;
+  caret-color: @primary@;
+  selection-background-color: @primary@;
+  selected-color: @bg@;
+  background-color: rgba(@bg_alt_rgb@, 0.88);
+  border: 2px solid rgba(@dim_rgb@, 0.55);
+  border-radius: 28px;
+  padding: 10px 18px;
+  box-shadow: none; }
+.login-dialog .login-dialog-prompt-entry:hover, .unlock-dialog .login-dialog-prompt-entry:hover {
+  background-color: rgba(@bg_alt_rgb@, 0.94);
+  border: 2px solid @dim@; }
+.login-dialog .login-dialog-prompt-entry:focus, .unlock-dialog .login-dialog-prompt-entry:focus {
+  background-color: rgba(@bg_alt_rgb@, 0.96);
+  border: 2px solid @primary@;
+  box-shadow: none !important; }
+
+.login-dialog .modal-dialog-button.cancel-button, .unlock-dialog .modal-dialog-button.cancel-button,
+.login-dialog .login-dialog-button, .unlock-dialog .login-dialog-button {
+  color: @on_primary_container@;
+  background-color: rgba(@primary_container_rgb@, 0.94);
+  border: none;
+  box-shadow: none; }
+.login-dialog .modal-dialog-button.cancel-button:hover, .unlock-dialog .modal-dialog-button.cancel-button:hover,
+.login-dialog .login-dialog-button:hover, .unlock-dialog .login-dialog-button:hover,
+.login-dialog .login-dialog-button:focus, .unlock-dialog .login-dialog-button:focus {
+  color: @bg@;
+  background-color: @primary@; }
+
+.login-dialog-not-listed-label { color: @text@; }
+.login-dialog-not-listed-button:hover .login-dialog-not-listed-label,
+.login-dialog-not-listed-button:focus .login-dialog-not-listed-label { color: @primary@; }
+.login-dialog-message { color: @tertiary@; }
+.login-dialog .caps-lock-warning-label, .unlock-dialog .caps-lock-warning-label,
+.login-dialog .login-dialog-message-warning, .unlock-dialog .login-dialog-message-warning { color: @yellow@; }
+
+.unlock-dialog-clock { color: @text@; }
+.unlock-dialog-clock .unlock-dialog-clock-time { font-family: "Orbitron", sans-serif; font-weight: bold; color: @primary@; }
+.unlock-dialog-clock .unlock-dialog-clock-date { font-family: "Orbitron", sans-serif; color: @tertiary@; }
+
+#panel.login-screen, #panel.unlock-screen { background-color: rgba(@bg_rgb@, 0.45); box-shadow: none; }
+#panel.login-screen .panel-button, #panel.unlock-screen .panel-button { color: @text@; }
+
+.login-dialog .popup-menu-content, .popup-menu-content, .quick-settings { background-color: @bg_alt@; color: @text@; }
+.popup-menu-item:selected, .popup-menu-item:focus { background-color: @primary_container@; color: @on_primary_container@; }
+.quick-toggle:checked, .quick-settings .icon-button:checked { background-color: @primary@; color: @bg@; }
+.slider { -barlevel-active-background-color: @primary@; -slider-handle-border-color: @primary@; }
