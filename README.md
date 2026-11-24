@@ -1,3 +1,5 @@
+![Neon-Grid: one look for Linux, from GRUB to the desktop](docs/og.png)
+
 # Neon-Grid
 
 A complete look for **Cinnamon on X11** (built on Ubuntu 26.10 dev, Cinnamon 6.6): from the GRUB menu, through
@@ -7,7 +9,8 @@ wallpaper (Material You), the surfaces are frosted glass, and everything moves o
 > **Setting it up with an AI coding agent?** Give it [`AGENTS.md`](AGENTS.md). It is written so that Claude
 > Code, Codex, Cursor or a similar agent can do the whole setup, check it and undo it.
 
-*All names, sites and numbers in the pictures are invented (`tools/demo.py`).*
+*All names, sites and numbers in the pictures are invented (`tools/demo.py`). The background of the title
+picture was made with an image generator; the screens in it are Neon-Grid.*
 
 ![Command panel with the processor card open](docs/panel-hover.jpg)
 
