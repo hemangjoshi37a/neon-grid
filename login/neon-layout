@@ -3,6 +3,7 @@
 restores that right after login (neon-layout apply), before the welcome screen shows, so nothing
 jumps when Cinnamon arranges them a few seconds later. Does nothing unless exactly the same
 monitors are connected; Cinnamon still has the last word."""
+import os
 import re
 import subprocess
 import sys
@@ -42,6 +43,8 @@ def args(o):
 
 
 def main():
+    if os.environ.get('XDG_SESSION_TYPE') == 'wayland':      # other names there; Cinnamon arranges them itself
+        return
     o = outputs()
     if sys.argv[1:] == ['save']:
         if any(v['on'] for v in o.values()):

@@ -115,21 +115,33 @@ local function uptime()
     f:close()
     return v
 end
-local function tick()
+-- /proc/uptime only knows 10 ms steps, so the length of a frame is the average of the last ones; the clock
+-- follows the real frame rate, whatever it is, and never jumps.
+local tick
+do
+local ring, ring_n, ring_step = {}, 0, nil
+function tick()
     local up = uptime()
-    if not T or math.abs(up - T) > 0.12 then
-        local dt = T and clamp(up - T, 0, FAST * 2) or FAST
-        T = up
+    if not T or up - T > 0.25 or T - up > 0.12 or ring_step ~= T_step then
+        local dt = T and clamp(up - T, 0.001, 0.02) or FAST
+        if not T or math.abs(up - T) > 0.25 then T = up else T = T + dt end
+        ring, ring_n, ring_step = {up}, 1, T_step
         return dt
     end
-    local old = T
-    if up - T > T_step + 0.02 then         -- a slow frame: catch up instead of running in slow motion
-        T = up
-        return clamp(T - old, 0.001, 0.06)
+    ring_n = ring_n + 1
+    ring[ring_n] = up
+    local from = math.max(1, ring_n - 14)
+    local est = ring_n > 6 and (up - ring[from]) / (ring_n - from) or T_step
+    if ring_n > 400 then
+        local keep = {}
+        for i = ring_n - 15, ring_n do keep[#keep + 1] = ring[i] end
+        ring, ring_n = keep, #keep
     end
-    T = T + T_step
-    T = T + (up - T) * 0.15
-    return clamp(T - old, 0.001, 0.05)
+    est = clamp(est, 0.003, 0.06)
+    local dt = clamp(est + clamp((up - T) * 0.08, -0.25 * est, 0.25 * est), 0.001, 0.06)
+    T = T + dt
+    return dt
+end
 end
 
 -- ===== text (sizes are remembered: measuring is the slow part) =====
@@ -1456,8 +1468,9 @@ function conky_panel()
     end
 
     if vis < 1 then                          -- being hidden or shown
-        cairo_identity_matrix(cr)
-        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_IN); cairo_paint_with_alpha(cr, vis)
+        cairo_identity_matrix(cr); cairo_reset_clip(cr)
+        cairo_set_source_rgba(cr, 0, 0, 0, vis)      -- (the last used colour must not decide how visible all is)
+        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_IN); cairo_paint(cr)
     end
     cairo_destroy(cr)
     cairo_surface_destroy(cs)

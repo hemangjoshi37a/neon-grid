@@ -26,5 +26,6 @@ return function(dt)
     if not a then a = hidden and 0 or 1 end
     local goal = hidden and 0 or 1
     if a < goal then a = math.min(1, a + dt / IN) elseif a > goal then a = math.max(0, a - dt / OUT) end
-    return ease(a), a ~= goal
+    if a == goal then return goal, false end      -- exactly 1 or 0 at rest
+    return ease(a), true
 end
