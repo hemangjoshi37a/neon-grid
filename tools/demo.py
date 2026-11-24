@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Invented data for screenshots: nothing in here is real.
 
-    tools/demo.py <home> <runtime dir>
+    tools/demo.py <home> <runtime dir> [dusk|forest|sunset]
 
 Writes an abstract wallpaper with its Material You palette, and the data files of both boards, below
 <home> and <runtime dir>. Run a board with HOME and XDG_RUNTIME_DIR pointing there.
@@ -19,6 +19,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 home, run = Path(sys.argv[1]), Path(sys.argv[2])
+LOOK = sys.argv[3] if len(sys.argv) > 3 else 'dusk'
 cache = home / '.cache/neon-grid'
 for d in (cache, run, home / '.config/neon-grid', home / '.config/conky'):
     d.mkdir(parents=True, exist_ok=True)
@@ -29,15 +30,19 @@ W, H = 2560, 1440
 y, x = np.mgrid[0:H, 0:W].astype(np.float32)
 u, v = x / W, y / H
 img = np.empty((H, W, 3), np.float32)
-img[:] = np.array([18, 24, 58], np.float32)
-for cx, cy, r, col in ((.15, .2, .55, (64, 92, 190)), (.82, .18, .5, (150, 84, 190)), (.55, .9, .6, (30, 130, 160)),
-                       (.95, .85, .45, (226, 120, 120)), (.35, .6, .35, (70, 60, 150))):
+BASE, DARK, LIGHTS = {
+    'dusk': ((18, 24, 58), (12, 14, 38), ((64, 92, 190), (150, 84, 190), (30, 130, 160), (226, 120, 120), (70, 60, 150))),
+    'forest': ((14, 38, 34), (8, 24, 24), ((40, 150, 110), (150, 170, 70), (20, 120, 130), (230, 200, 110), (30, 100, 80))),
+    'sunset': ((52, 20, 34), (36, 12, 26), ((220, 90, 70), (240, 150, 70), (150, 50, 110), (250, 200, 120), (170, 50, 70))),
+}[LOOK]
+img[:] = np.array(BASE, np.float32)
+for (cx, cy, r), col in zip(((.15, .2, .55), (.82, .18, .5), (.55, .9, .6), (.95, .85, .45), (.35, .6, .35)), LIGHTS):
     d = np.exp(-(((u - cx) * 1.6) ** 2 + (v - cy) ** 2) / (r * r * .5))[..., None]
     img = img * (1 - d * .85) + np.array(col, np.float32) * d * .85
 for k in range(9):
     edge = .42 + k * .07 + .05 * np.sin(u * (3 + k * .7) * 2 + k) + .02 * np.sin(u * 13 + k * 2)
     shade = np.clip((v - edge) * 26, 0, 1)[..., None] * .13
-    img = img * (1 - shade) + np.array([12, 14, 38], np.float32) * shade
+    img = img * (1 - shade) + np.array(DARK, np.float32) * shade
     rim = np.exp(-((v - edge) * 160) ** 2)[..., None] * 18
     img += rim
 img += np.random.default_rng(3).normal(0, 2.2, img.shape)
