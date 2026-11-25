@@ -1,0 +1,19 @@
+[Unit]
+Description=Neon-Grid: bring the boot animation to rest before the login screen loads
+DefaultDependencies=no
+ConditionPathExists=/run/plymouth/pid
+After=plymouth-start.service
+Before=display-manager.service gdm.service plymouth-quit.service plymouth-quit-wait.service
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/bin/plymouth update --status=neon:r:
+ExecStart=-/usr/bin/sleep 1.3
+TimeoutStartSec=5
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical.target

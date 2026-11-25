@@ -124,8 +124,8 @@ install_splash() {
     install -d -m 755 "$PLY"
     install -m 644 "$here/neon-grid.plymouth" "$here/neon-grid.script" "$PLY/"
     install -m 755 "$here/neon-bootlog" "$LIB/"
-    install -m 644 "$here/neon-bootlog.service" /etc/systemd/system/
-    systemctl daemon-reload && systemctl enable -q neon-bootlog.service
+    install -m 644 "$here/neon-bootlog.service" "$here/neon-rest.service" /etc/systemd/system/
+    systemctl daemon-reload && systemctl enable -q neon-bootlog.service neon-rest.service
     generate && [ -s "$PLY/bg.png" ] && [ -s "$PLY/cof-239.png" ] || { echo "images failed"; return 1; }
     old=$(stat -c %s "$IMG"); oldk=$(lsinitrd "$IMG" 2>/dev/null | grep -c '\.ko')
     update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$PLY/neon-grid.plymouth" 100 >/dev/null
@@ -150,7 +150,8 @@ install_splash() {
     fi
 }
 revert_splash() {
-    systemctl disable -q --now neon-bootlog.service 2>/dev/null; rm -f /etc/systemd/system/neon-bootlog.service; systemctl daemon-reload
+    systemctl disable -q --now neon-bootlog.service neon-rest.service 2>/dev/null
+    rm -f /etc/systemd/system/neon-bootlog.service /etc/systemd/system/neon-rest.service; systemctl daemon-reload
     [ -f "$PSTOCK" ] && update-alternatives --set default.plymouth "$PSTOCK" >/dev/null
     [ "${1:-}" = quick ] || update-initramfs -u -k "$KV" >/dev/null 2>&1
     echo "splash: stock"

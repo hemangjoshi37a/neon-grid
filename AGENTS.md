@@ -134,6 +134,8 @@ Edit the live file, apply, look, then copy it into the repository.
 - GRUB `gfxmenu`: use three-piece bars (w, c, e); top and bottom pieces move the selected row.
 - The GRUB, welcome and login pictures must match pixel by pixel where one hands over to the next. The login
   animation ends at rest, and `neon-splash` starts from the same pose. Do not fade to black between them.
+- The display manager stops Plymouth from drawing long before the login screen is up. `neon-rest.service` therefore brings the
+  animation to a fixed pose first, and the login screen's first picture (`boot.jpg`) is that pose. Change one, change the other.
 - Plymouth passes only Tab, Enter, Backspace and Esc to a theme; Esc always opens its own text. A variable first assigned
   inside a function is local to it, and strings know no `\t`. Test with a dracut image in QEMU, without a serial console
   (that forces text mode); pad the image to 512 bytes before appending a cpio with changed files.

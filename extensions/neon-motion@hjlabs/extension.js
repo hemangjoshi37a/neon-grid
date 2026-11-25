@@ -285,7 +285,7 @@ function dropGlass(menu) {
     if (!pane) return;
     panes.delete(menu);
     try {
-        if (!menu.actor.is_finalized()) {
+        if (menu.actor && !menu.actor.is_finalized()) {
             for (const id of pane.ids) menu.actor.disconnect(id);
             menu.actor.remove_style_class_name('neon-glass');
         }
@@ -373,7 +373,7 @@ class Smooth {
             if (parent === ap.categoriesBox || !parent) throw null;          // categories: Cinnamon's own way
             const isApp = parent === ap.applicationsBox;
             const clear = o => {
-                if (!o || o === b || o.actor.is_finalized()) return;
+                if (!o || o === b || !o.actor || o.actor.is_finalized()) return;
                 if (o.actor.get_parent() === ap.applicationsBox) o.actor.set_style_class_name('appmenu-application-button');
                 else o.actor.remove_style_pseudo_class('hover');
                 o.actor.remove_accessible_state(Atk.StateType.FOCUSED);
@@ -603,7 +603,7 @@ function smoothFor(menu) {
 // ---------- pop-ups ----------
 function isPanelMenu(menu) {
     try {
-        return Main.wm.desktop_effects_menus && Main.animations_enabled && !menu.actor.is_finalized() &&
+        return Main.wm.desktop_effects_menus && Main.animations_enabled && menu.actor && !menu.actor.is_finalized() &&
             menu.sourceActor && !menu.sourceActor.is_finalized() && !!menu.getPanel();
     } catch (e) {
         return false;
@@ -637,7 +637,7 @@ function settle(menu) {
     }
     try {
         const a = menu.actor;
-        if (a.is_finalized()) return;
+        if (!a || a.is_finalized()) return;       // the menu was destroyed meanwhile
         if (st.effect) a.remove_effect(st.effect);
         const pane = panes.get(menu);
         if (pane && !st.closing && pane.effect.p !== 1) pane.effect.setProgress(1);
@@ -767,7 +767,7 @@ function neonClose(animate) {
         delete a.hide;
     }
     try {
-        if (a.is_finalized()) return undefined;
+        if (!a || a.is_finalized()) return undefined;
         if (!a.visible || menu.isOpen) throw new Error('already hidden');
         menu.animating = true;
         begin(menu, true, now === null ? 1 : now);

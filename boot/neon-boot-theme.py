@@ -268,7 +268,30 @@ def grub(dest, pal, wall, masks):
 
 
 # ------------------------------------------------------------------ GDM
-def login(target, pal, wall):
+def rest_pose(back, pal, masks):
+    """The boot animation at rest (neon-grid.script, `resting`), as the login screen's first picture."""
+    im = back.convert('RGBA')
+    cx, cy, gap = W // 2, int(H * 0.42), 165
+
+    def put(mask, colour, x, y, alpha=1.0):
+        t = tint(mask, colour, alpha)
+        im.alpha_composite(t, (int(x), int(y)))
+        return t
+    sh = masks['shape-00'].shape[0] / 2
+    put(masks['shape-00'], pal['primary_container'], cx - gap - sh, cy - sh)
+    put(masks['shape-47'], pal['tertiary_container'], cx + gap - sh, cy - sh)
+    cof = masks['cof-000']
+    put(cof, pal['on_primary_container'], cx - gap - cof.shape[1] / 2, cy - cof.shape[0] / 2)
+    oem = masks['oem' if 'oem' in masks.files else 'victus']
+    put(oem, pal['on_tertiary_container'], cx + gap - oem.shape[1] / 2, cy - oem.shape[0] / 2 + 6)
+    sub = masks['sub-boot']
+    put(sub, pal['text'], cx - sub.shape[1] / 2, cy + 235)
+    for i in range(112):
+        put(masks['wave'], pal['primary'], cx - 112 * 5 / 2 + i * 5, cy + 330)
+    return im.convert('RGB')
+
+
+def login(target, pal, wall, masks=None, with_splash=False):
     src = Path('/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource')
     prefix = '/org/gnome/shell/theme/'
     if not target.parent.is_dir() or not target.exists() or not src.is_file():
@@ -309,7 +332,13 @@ def login(target, pal, wall):
     im.save(buf, 'JPEG', quality=92)
     atomic(target.parent / 'welcome.jpg', buf.getvalue())
     buf = io.BytesIO()
-    scrim(wall, pal['bg'], 0.30, 0.46, 0.62).resize((1920, 1080), Image.LANCZOS).save(buf, 'JPEG', quality=93)
+    back = scrim(wall, pal['bg'], 0.30, 0.46, 0.62).resize((1920, 1080), Image.LANCZOS)
+    if with_splash and masks is not None:
+        try:
+            back = rest_pose(back, pal, masks)
+        except Exception as e:           # the plain picture does as well
+            log('rest pose:', repr(e))
+    back.save(buf, 'JPEG', quality=95)
     atomic(target.parent / 'boot.jpg', buf.getvalue())
     atomic(target.parent / 'login.json', json.dumps({
         'bg': pal['bg'], 'text': pal['text'], 'primary': pal['primary'], 'tertiary': pal['tertiary'],
@@ -335,7 +364,8 @@ def main():
     failed = False
     for job in (lambda: splash(root / 'usr/share/plymouth/themes/neon-grid', pal, wall, masks),
                 lambda: grub(root / 'boot/grub/themes/neon-grid', pal, wall, masks),
-                lambda: login(root / 'usr/local/share/neon-grid/neon-grid-gdm.gresource', pal, big)):
+                lambda: login(root / 'usr/local/share/neon-grid/neon-grid-gdm.gresource', pal, big, masks,
+                              (root / 'etc/systemd/system/neon-rest.service').exists())):
         try:
             job()
         except Exception as e:          # one screen must not block the others

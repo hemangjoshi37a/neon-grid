@@ -91,6 +91,11 @@ global.tick = 0;
 global.progress = 0;
 global.shown = 0;
 global.helper = 0;
+global.resting = 0;       // 1 once the login screen is about to load: everything comes to rest
+global.rest = 0;
+global.still = 0;
+global.ph_a = 0;
+global.ph_c = 0;
 global.log_shown = 0;
 global.fresh = -1;       // >= 0 while reloading images from the real disk
 
@@ -121,6 +126,7 @@ fun reload_one(n) {      // a missing file keeps the old picture; returns 0 when
 fun draw_wave(t, fade) {
     if (is_boot) {
         global.shown = global.shown + (global.progress - global.shown) * 0.06;
+        if (global.still > 0) global.shown = global.shown + (1.02 - global.shown) * global.still;
         lo = -1;
         hi = global.shown * DOTS;
     } else {                                 // a segment travelling along the line
@@ -133,7 +139,7 @@ fun draw_wave(t, fade) {
         if (i > lo && i < hi) on = 1;
         amp = 0;
         if (on) {                            // the wave flattens towards its ends
-            amp = Math.Min(1, (hi - i) / 8);
+            amp = Math.Min(1, (hi - i) / 8) * (1 - global.still);
             if (!is_boot) amp = Math.Min(amp, (i - lo) / 8);
         }
         if (on != dot_on[i]) {
@@ -157,12 +163,33 @@ fun refresh_cb() {
     if (!is_boot) gap = gap * (0.97 + 0.03 * Math.Cos(t * 0.05));
     bob = 5 * SC * Math.Sin(t * 0.04);
 
-    n = fmod(t, SHAPES);
+    // While the login screen loads, nothing can be drawn: the picture would stop wherever it was.
+    // So just before, everything glides to one fixed pose, the one the login screen starts from.
+    R = 0;
+    if (global.resting) {
+        if (global.rest == 0) {
+            global.from_a = global.ph_a; global.to_a = (Math.Int(global.ph_a / SHAPES) + 1) * SHAPES;
+            global.from_c = global.ph_c; global.to_c = (Math.Int(global.ph_c / COFS) + 1) * COFS;
+            global.log_on = 0;
+        }
+        global.rest = Math.Min(1, global.rest + 1 / 55);
+        R = global.rest * global.rest * (3 - 2 * global.rest);
+        global.ph_a = global.from_a + (global.to_a - global.from_a) * R;
+        global.ph_c = global.from_c + (global.to_c - global.from_c) * R;
+        bob = bob * (1 - R);
+        gap = gap + (165 * SC - gap) * R;
+        fade = fade + (1 - fade) * R;
+    } else {
+        global.ph_a = global.ph_a + 1;
+        global.ph_c = global.ph_c + 1;
+    }
+    global.still = R;
+    n = fmod(Math.Int(global.ph_a + 0.5), SHAPES);
     sa.SetImage(shape_a[n]);
     sb.SetImage(shape_b[SHAPES - 1 - n]);
     sa.SetX(CX - gap - shape_half); sa.SetY(CY + bob - shape_half);
     sb.SetX(CX + gap - shape_half); sb.SetY(CY - bob - shape_half);
-    cof.SetImage(cof_img[fmod(t, COFS)]);
+    cof.SetImage(cof_img[fmod(Math.Int(global.ph_c + 0.5), COFS)]);
     cof.SetX(CX - gap - cof_half); cof.SetY(CY + bob - cof_half);
     vic.SetX(CX + gap - vic_img.GetWidth() / 2); vic.SetY(CY - bob - vic_img.GetHeight() / 2 + 6 * SC);
     sa.SetOpacity(fade); sb.SetOpacity(fade); cof.SetOpacity(fade); vic.SetOpacity(fade); sub.SetOpacity(fade);
@@ -173,7 +200,7 @@ fun refresh_cb() {
         a = dir * t * 0.028 + i * 2 * PI / 3;
         r = (shape_half + 12 * SC) + 6 * SC * Math.Sin(t * 0.05 + i);
         orb[i].SetPosition(CX + side * gap + r * Math.Cos(a) - orbit_half, CY + yb + r * Math.Sin(a) - orbit_half, 11);
-        orb[i].SetOpacity(fade);
+        orb[i].SetOpacity(fade * (1 - R));
     }
     draw_wave(t, fade);
     draw_log(t, fade);
@@ -278,6 +305,7 @@ fun status_cb(status) {
     if (st.SubString(0, 5) == "neon:") {
         kind = st.CharAt(5);
         if (kind == "k") toggle_log();
+        else if (kind == "r") { if (is_boot) global.resting = 1; }
         else log_add(kind, st.SubString(7, st.Length()));
         global.helper = 1;
     } else if (!global.helper) {             // before the helper runs: what systemd itself reports
@@ -292,7 +320,7 @@ fun key_cb(entry, key) {
 Plymouth.SetValidateInputFunction(key_cb);
 
 fun draw_log(t, fade) {
-    if (hint_img) hint.SetOpacity(fade * Math.Max(0, Math.Min(1, (t - 60) / 60)) * (1 - global.log_v));
+    if (hint_img) hint.SetOpacity(fade * Math.Max(0, Math.Min(1, (t - 60) / 60)) * (1 - global.log_v) * (1 - global.still));
     // the line under the wave
     if (global.now_new && t - global.now_at > 7) {
         img = log_text_image(global.now_text, global.now_kind);
@@ -301,7 +329,7 @@ fun draw_log(t, fade) {
         global.now_new = 0;
         global.now_at = t;
     }
-    if (global.now_at > 0) now_line.SetOpacity(0.85 * fade * (1 - global.log_v));
+    if (global.now_at > 0) now_line.SetOpacity(0.85 * fade * (1 - global.log_v) * (1 - global.still));
     // the panel
     step = 0.055;
     if (global.log_on) global.log_v = Math.Min(1, global.log_v + step);
