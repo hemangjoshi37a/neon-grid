@@ -711,7 +711,9 @@ local function apps_now()
     for _, a in ipairs(d.app or {}) do
         local it = {id = a[1], name = a[2], cpu = tonumber(a[3]) or 0, ram = tonumber(a[4]) or 0, io = tonumber(a[5]) or 0,
             n = tonumber(a[6]) or 0, thr = tonumber(a[7]) or 0, vram = tonumber(a[8]) or 0, age = tonumber(a[9]) or 0,
-            can = a[10], spark = {}}
+            can = a[10], spark = {}, rd = tonumber(a[12]) or 0, wr = tonumber(a[13]) or 0, down = tonumber(a[14]) or 0,
+            up = tonumber(a[15]) or 0, conns = tonumber(a[16]) or 0}
+        it.net = it.down + it.up
         for v in (a[11] or ''):gmatch('[^,]+') do it.spark[#it.spark + 1] = tonumber(v) or 0 end
         list[#list + 1], by[it.id] = it, it
     end
@@ -735,7 +737,8 @@ end
 local function draw_apps(cr, g, e)
     card(cr, g, 'APPS', CYAN, nil, e, 'apps')
     local x, y, w, h = g.x + 15, g.y, g.w - 30, g.h
-    local hint = 'sorted by ' .. ({cpu = 'processor', ram = 'memory', io = 'disk', age = 'age', name = 'name'})[sort_by]
+    local hint = 'sorted by ' .. ({cpu = 'processor', ram = 'memory', io = 'disk', net = 'network', rd = 'disk reads', wr = 'disk writes',
+        down = 'download', up = 'upload', age = 'age', name = 'name'})[sort_by]
     if e < 0.9 then text(cr, hint, x + w, y + 25, MONO, 9.5, false, DIM, 1 - e, 'r') end
     if e > 0.4 then
         local old = GA; GA = GA * smooth((e - 0.4) / 0.5)
@@ -747,11 +750,16 @@ local function draw_apps(cr, g, e)
     local list = apps_now()
     -- columns
     local big = e
+    -- closed: PROCESSOR MEMORY DISK NETWORK; open: disk and network split in two, then PROCS and RUNNING
+    local split = smooth((big - 0.5) * 2)
     local c_age = x + w
-    local c_n = c_age - mix(0, 78, big)
-    local c_io = c_n - mix(0, 62, big)
-    local c_ram = c_io - 92
-    local c_cpu = c_ram - mix(112, 126, big)
+    local c_n = c_age - 78 * big
+    local c_up = c_age - 128 * big
+    local c_net = c_age - mix(0, 204, big)
+    local c_wr = c_age - mix(76, 280, big)
+    local c_io = c_age - mix(76, 356, big)
+    local c_ram = c_age - mix(152, 442, big)
+    local c_cpu = c_age - mix(238, 530, big)
     local sx, sw = x + 206, math.max(40, c_cpu - 74 - (x + 206))
     local hy = y + 54
     local function column(label, key, cx, al)
@@ -764,9 +772,16 @@ local function draw_apps(cr, g, e)
     end
     column('APP', 'name', x + 4, 'l')
     text(cr, 'LAST 80 S', sx, hy, DISPLAY, 8, true, DIM, 1, 'l')
-    column('PROCESSOR', 'cpu', c_cpu, 'r'); column('MEMORY', 'ram', c_ram, 'r'); column('DISK', 'io', c_io, 'r')
-    if big > 0.5 then
-        local old = GA; GA = GA * smooth((big - 0.5) * 2)
+    column('PROCESSOR', 'cpu', c_cpu, 'r'); column('MEMORY', 'ram', c_ram, 'r')
+    if split < 1 then
+        local old = GA; GA = GA * (1 - split)
+        column('DISK', 'io', c_io, 'r'); column('NETWORK', 'net', c_net, 'r')
+        GA = old
+    end
+    if split > 0 then
+        local old = GA; GA = GA * split
+        column('READ', 'rd', c_io, 'r'); column('WRITE', 'wr', c_wr, 'r')
+        column('DOWN', 'down', c_net, 'r'); column('UP', 'up', c_up, 'r')
         text(cr, 'PROCS', c_n, hy, DISPLAY, 8, true, DIM, 1, 'r'); column('RUNNING', 'age', c_age, 'r')
         GA = old
     end
@@ -832,9 +847,17 @@ local function draw_apps(cr, g, e)
         bar(cr, c_cpu - 108 + 52, yy + rowh - 4, 56, 2, moved('c' .. a.id, a.cpu) / mcpu, cc)
         text(cr, mib(a.ram), c_ram, by, MONO, 11, true, a.ram >= 2048 and MAGENTA or TEXT, 1, 'r')
         bar(cr, c_ram - 56, yy + rowh - 4, 56, 2, moved('m' .. a.id, a.ram) / mram, MAGENTA)
-        text(cr, a.io >= 1 and rate(a.io) or '-', c_io, by, MONO, 10, false, a.io >= 1024 and YELLOW or (a.io >= 1 and TEXT or DIM), 1, 'r')
-        if big > 0.5 then
-            local old = GA; GA = GA * smooth((big - 0.5) * 2)
+        local function cell(v, cx, hot)
+            text(cr, v >= 1 and rate(v) or '-', cx, by, MONO, 10, false, v >= 1024 and hot or (v >= 1 and TEXT or DIM), 1, 'r')
+        end
+        if split < 1 then
+            local old = GA; GA = GA * (1 - split)
+            cell(a.io, c_io, YELLOW); cell(a.net, c_net, GREEN)
+            GA = old
+        end
+        if split > 0 then
+            local old = GA; GA = GA * split
+            cell(a.rd, c_io, YELLOW); cell(a.wr, c_wr, YELLOW); cell(a.down, c_net, GREEN); cell(a.up, c_up, GREEN)
             text(cr, string.format('%d', a.n), c_n, by, MONO, 10, false, TEXT, 1, 'r')
             text(cr, span(a.age), c_age, by, MONO, 10, false, TEXT, 1, 'r')
             GA = old
@@ -842,6 +865,37 @@ local function draw_apps(cr, g, e)
     end
     cairo_restore(cr)
     for id in pairs(rowpos) do if not shown[id] then rowpos[id] = nil end end
+end
+
+-- ===== apps as the network and the disk see them =====
+-- rows: {id, name, values...}; cols: {label, right edge, index, format, colour, alpha}. A click shows the app in the table.
+local function app_list(cr, x, y, w, title, rows, cols, count, extra, a, key)
+    head(cr, title, x, y)
+    for _, c in ipairs(cols) do
+        if (c[6] or 1) > 0.01 then text(cr, c[1], c[2], y, DISPLAY, 7.5, true, DIM, c[6] or 1, 'r') end
+    end
+    local left = cols[1][2]
+    for _, c in ipairs(cols) do if (c[6] or 1) > 0.5 then left = math.min(left, c[2]) end end
+    for i = 1, math.min(#rows, count + extra) do
+        local row, yy = rows[i], y + i * 18
+        local old = GA
+        if i > count then GA = GA * a end
+        if GA > 0.01 then
+            local busy = (row.rate or 0) >= 1
+            text(cr, fit(cr, row.name, MONO, 10, busy, left - 74 - x), x, yy, MONO, 10, busy, row.id and TEXT or DIM, busy and 1 or 0.8, 'l')
+            for _, c in ipairs(cols) do
+                local v = row[c[3]] or 0
+                if (c[6] or 1) > 0.01 then
+                    text(cr, v >= (c.min or 1) and c[4](v) or '-', c[2], yy, MONO, 10, false, v >= (c.min or 1) and (c.plain and TEXT or c[5]) or DIM, c[6] or 1, 'r')
+                end
+            end
+            if row.id and GA > 0.85 then
+                region(x - 6, yy - 13, w + 12, 18, function() sort_by, selected, order, confirm = key, row.id, {}, nil end, 6, cols[1][5])
+            end
+        end
+        GA = old
+    end
+    if #rows == 0 then text(cr, 'quiet', x, y + 18, MONO, 10, false, DIM, 1, 'l') end
 end
 
 -- ===== network =====
@@ -854,8 +908,8 @@ local function draw_net(cr, g, e)
         head(cr, k[1], bx, y + 50)
         text(cr, rate(k[2]), bx, y + 72, DISPLAY, 15, true, k[3], 1, 'l')
     end
-    local extra = mix(0, 132, e)
-    local cy, ch = y + 86, h - 86 - 52 - extra
+    local extra = mix(0, 104, e)
+    local cy, ch = y + 86, h - 86 - 52 - 76 - extra
     local top = math.max(40, (select(2, stats(n.h_down))), (select(2, stats(n.h_up)))) * 1.1
     -- down above the line, up below it
     local up = ch * 0.4
@@ -878,16 +932,32 @@ local function draw_net(cr, g, e)
     text(cr, fit(cr, string.format('since boot: %s down, %s up', gib(tonumber(N[5]) or 0), gib(tonumber(N[6]) or 0)), MONO, 9, false, w), x, ny + 18,
         MONO, 9, false, DIM, 1, 'l')
     local a = smooth((e - 0.4) / 0.55)
+    -- who is using it: the three busiest, six when open
+    local rows = {}
+    for _, p in ipairs(d.napp or {}) do
+        local it = {id = p[1], name = p[2], tonumber(p[3]) or 0, tonumber(p[4]) or 0, tonumber(p[5]) or 0}
+        it[4] = (tonumber(p[6]) or 0) + (tonumber(p[7]) or 0)
+        it.rate = it[1] + it[2]
+        if p[2] == 'other users' then it.id = nil end
+        rows[#rows + 1] = it
+    end
+    local un = n.netu or {}
+    if (un[1] or 0) + (un[2] or 0) >= 1 then
+        rows[#rows + 1] = {name = 'not per app (QUIC, calls, DNS)', un[1] or 0, un[2] or 0, 0, 0, rate = (un[1] or 0) + (un[2] or 0)}
+        table.sort(rows, function(p, q) if p.rate ~= q.rate then return p.rate > q.rate end return (p[4] or 0) > (q[4] or 0) end)
+    end
+    local ly = ny + 40
+    app_list(cr, x, ly, w, 'BY APP', rows, {
+        {'UP', x + w, 2, rate, CYAN}, {'DOWN', x + w - 84, 1, rate, GREEN},
+        {'SINCE START', x + w - 176, 4, mib, TEXT, a, plain = true},
+        {'OPEN', x + w - 262, 3, function(v) return string.format('%.0f', v) end, TEXT, a, plain = true},
+    }, 3, 3, a, 'net')
     if a > 0 then
         local old = GA; GA = GA * a
-        local dy = ny + 40
-        head(cr, 'OPEN CONNECTIONS BY APP', x, dy)
-        local t = pairs_of(d.conn)
-        local cw = w * 0.56
-        bars_list(cr, x, dy + 18, cw, t, 5, GREEN, function(v) return string.format('%.0f', v) end, t[1] and t[1][2] or 1, 18)
-        local rx, rw = x + cw + 24, w - cw - 24
-        fact(cr, 'address', N[4] or '-', rx, dy + 18, rw); fact(cr, 'link', N[3] or '-', rx, dy + 36, rw)
-        button(cr, 'NETWORK SETTINGS', rx, dy + 62, rw, false, GREEN, function() act('open', 'network') end)
+        local dy = ly + 7 * 18 + 8
+        local half2 = (w - 16) / 2
+        fact(cr, 'address', N[4] or '-', x, dy, half2); fact(cr, 'link', N[3] or '-', x, dy + 18, half2)
+        button(cr, 'NETWORK SETTINGS', x + half2 + 16, dy - 12, half2, false, GREEN, function() act('open', 'network') end)
         GA = old
     end
 end
@@ -912,8 +982,8 @@ local function draw_disk(cr, g, e)
         if perday < -0.5 then note = note .. string.format(', full in %d days', math.floor((n.disk[2] or 0) / -perday)); nc = YELLOW end
     end
     text(cr, fit(cr, note, MONO, 9.5, false, w), x, y + 112, MONO, 9.5, false, nc, 1, 'l')
-    local extra = mix(0, 128, e)
-    local cy, chh = y + 144, h - 144 - 24 - extra
+    local extra = mix(0, 100, e)
+    local cy, chh = y + 144, h - 144 - 24 - 80 - extra
     local top = math.max(1024, (select(2, stats(n.h_read))), (select(2, stats(n.h_write)))) * 1.1
     text(cr, 'read ' .. rate((n.diskx or {})[1] or 0), x, y + 134, MONO, 9.5, true, CYAN, 1, 'l')
     text(cr, 'write ' .. rate((n.diskx or {})[2] or 0), x + w, y + 134, MONO, 9.5, true, MAGENTA, 1, 'r')
@@ -922,18 +992,23 @@ local function draw_disk(cr, g, e)
     end
     text(cr, '5 min ago', x, cy + chh + 15, MONO, 8.5, false, DIM, 1, 'l'); text(cr, 'now', x + w, cy + chh + 15, MONO, 8.5, false, DIM, 1, 'r')
     local a = smooth((e - 0.4) / 0.55)
+    local rows = {}
+    for _, p in ipairs(d.dapp or {}) do
+        local it = {id = p[1], name = p[2], tonumber(p[3]) or 0, tonumber(p[4]) or 0, tonumber(p[5]) or 0, tonumber(p[6]) or 0}
+        it.rate = it[1] + it[2]
+        rows[#rows + 1] = it
+    end
+    local dy = cy + chh + 38
+    app_list(cr, x, dy, w, 'BY APP', rows, {
+        {'WRITE', x + w, 2, rate, MAGENTA}, {'READ', x + w - 84, 1, rate, CYAN},
+        {'WRITTEN', x + w - 176, 4, mib, TEXT, a, plain = true}, {'READ IN ALL', x + w - 262, 3, mib, TEXT, a, plain = true},
+    }, 3, 3, a, 'io')
     if a > 0 then
         local old = GA; GA = GA * a
-        local dy = cy + chh + 38
-        head(cr, 'USING THE DISK NOW', x, dy)
-        local t = {}
-        for _, p in ipairs(d.app or {}) do if (tonumber(p[5]) or 0) >= 1 then t[#t + 1] = {p[2], tonumber(p[5])} end end
-        table.sort(t, function(p, q) return p[2] > q[2] end)
-        bars_list(cr, x, dy + 18, w, t, 3, MAGENTA, rate, t[1] and t[1][2] or 1, 18)
-        if #t == 0 then text(cr, 'quiet', x, dy + 18, MONO, 10, false, DIM, 1, 'l') end
         local bw = (w - 8) / 2
-        button(cr, 'FILES', x, dy + 72, bw, false, CYAN, function() act('open', 'files') end)
-        button(cr, 'WHAT FILLS IT', x + bw + 8, dy + 72, bw, false, c, function() act('open', 'disk') end)
+        local by2 = dy + 6 * 18 + 14
+        button(cr, 'FILES', x, by2, bw, false, CYAN, function() act('open', 'files') end)
+        button(cr, 'WHAT FILLS IT', x + bw + 8, by2, bw, false, c, function() act('open', 'disk') end)
         GA = old
     end
 end
@@ -1348,16 +1423,16 @@ end
 
 -- ===== data =====
 local function parse(txt)
-    local t = {app = {}}
+    local t = {app = {}, napp = {}, dapp = {}}
     for l in (txt or ''):gmatch('[^\n]+') do
         local p = {}
         for x in (l .. '\t'):gmatch('(.-)\t') do p[#p + 1] = x end
         local k = table.remove(p, 1)
-        if k == 'app' then t.app[#t.app + 1] = p elseif k then t[k] = p end
+        if k == 'app' or k == 'napp' or k == 'dapp' then t[k][#t[k] + 1] = p elseif k then t[k] = p end
     end
     local m = {}
     for k, v in pairs(t) do
-        if k ~= 'app' then
+        if k ~= 'app' and k ~= 'napp' and k ~= 'dapp' then
             local o = {}
             for i, x in ipairs(v) do o[i] = tonumber(x) or 0 end
             m[k] = o

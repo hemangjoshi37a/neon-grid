@@ -69,7 +69,8 @@ Nemo and GNOME Terminal glide when you turn the wheel.
 <img src="docs/hover.webp" alt="Command panel: cards open under the pointer" width="100%">
 
 **Command panel.** Hover a card and it opens; click to pin it. End, restart or slow down an app, change the fan mode or
-the power profile. Nothing here runs as root. The eye at the top right hides all widgets.
+the power profile. The app table shows what each app does on the disk and on the network, and the Network and Storage
+cards list the same apps from their side. Nothing here runs as root. The eye at the top right hides all widgets.
 
 <table>
 <tr>

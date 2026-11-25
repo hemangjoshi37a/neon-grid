@@ -178,7 +178,8 @@ class Apps:
     """CPU, memory and disk activity per app."""
 
     def __init__(self):
-        self.prev = {}          # pid -> (start, cpu seconds, io bytes)
+        self.prev = {}          # pid -> (start, cpu seconds, bytes read, bytes written)
+        self.disk = {}          # label -> [bytes read, bytes written] since this collector started
         self.names = {}         # pid -> (start, label, unit)
         self.spark = {}         # label -> deque of cpu %
 
@@ -198,19 +199,29 @@ class Apps:
             else:
                 label, unit = app_name(pid, comm, uid)
             names[pid] = (start, label, unit)
-            io = 0
+            rd = wr = 0
             if uid == UID:
                 for line in read("/proc/%d/io" % pid).splitlines():
-                    if line.startswith(("read_bytes", "write_bytes")):
-                        io += int(line.split(":")[1])
+                    if line.startswith("read_bytes"):
+                        rd = int(line.split(":")[1])
+                    elif line.startswith("write_bytes"):
+                        wr = int(line.split(":")[1])
             t = ct.user + ct.system
-            cur[pid] = (start, t, io)
-            a = app.setdefault(label, {"cpu": 0.0, "ram": 0.0, "io": 0.0, "n": 0, "thr": 0, "vram": 0.0,
+            cur[pid] = (start, t, rd, wr)
+            a = app.setdefault(label, {"cpu": 0.0, "ram": 0.0, "io": 0.0, "rd": 0.0, "wr": 0.0, "down": 0.0,
+                                       "up": 0.0, "conns": 0, "n": 0, "thr": 0, "vram": 0.0,
                                        "start": start, "unit": unit, "mine": True, "pids": [], "comms": set()})
             old = self.prev.get(pid)
             if old and old[0] == start and dt > 0:
                 a["cpu"] += max(0.0, t - old[1]) / dt * 100.0
-                a["io"] += max(0, io - old[2]) / dt / 1024.0
+                dr, dw = max(0, rd - old[2]), max(0, wr - old[3])
+                a["rd"] += dr / dt / 1024.0
+                a["wr"] += dw / dt / 1024.0
+                a["io"] = a["rd"] + a["wr"]
+                if dr or dw:
+                    tot = self.disk.setdefault(label, [0, 0])
+                    tot[0] += dr
+                    tot[1] += dw
             a["ram"] += max(0, mi.rss - getattr(mi, "shared", 0)) / 1048576.0
             a["n"] += 1
             a["thr"] += i.get("num_threads") or 1
@@ -228,6 +239,50 @@ class Apps:
             self.spark.setdefault(label, deque(maxlen=SPARK)).append(a["cpu"])
         for label in [k for k in self.spark if k not in app]:
             del self.spark[label]
+        return app
+
+
+class Net:
+    """Network bytes per app, from the kernel's own counters of every TCP connection (ss).
+    Other traffic (UDP: QUIC, calls, DNS) has no such counters and stays unassigned."""
+    LOCAL = ("127.", "[::1]", "[::ffff:127.")
+
+    def __init__(self):
+        self.prev = None        # (local, remote) -> (received, sent)
+        self.total = {}         # label -> [received, sent] since this collector started
+
+    def sample(self, dt, names):
+        try:
+            out = subprocess.run(["ss", "-tinpHO"], capture_output=True, text=True, timeout=3).stdout
+        except Exception:
+            return {}
+        cur, app = {}, {}
+        for line in out.splitlines():
+            f = line.split()
+            if len(f) < 5 or f[4].startswith(self.LOCAL):
+                continue
+            rx, tx = re.search(r"bytes_received:(\d+)", line), re.search(r"bytes_acked:(\d+)", line)
+            rx, tx = int(rx.group(1)) if rx else 0, int(tx.group(1)) if tx else 0
+            pid = re.search(r"pid=(\d+)", line)
+            label = names.get(int(pid.group(1)), (0, "?", ""))[1] if pid else "other users"
+            key = (f[3], f[4])
+            cur[key] = (rx, tx)
+            a = app.setdefault(label, {"down": 0.0, "up": 0.0, "conns": 0})
+            if f[0] == "ESTAB":
+                a["conns"] += 1
+            if self.prev is None:
+                continue
+            old = self.prev.get(key, (0, 0))
+            dr, dt_ = rx - old[0], tx - old[1]
+            if dr < 0 or dt_ < 0:          # the same addresses, a new connection
+                dr, dt_ = rx, tx
+            if dr or dt_:
+                a["down"] += dr / max(dt, 0.1) / 1024.0
+                a["up"] += dt_ / max(dt, 0.1) / 1024.0
+                tot = self.total.setdefault(label, [0, 0])
+                tot[0] += dr
+                tot[1] += dt_
+        self.prev = cur
         return app
 
 
@@ -369,6 +424,7 @@ def main():
     net_prev = net_totals()
     last = time.monotonic()
     table = Apps()
+    nets = Net()
     disk_log, claude_log = Log("disk.log", 1800, 8), Log("claude.log", 300, 2)
     disk_prev = psutil.disk_io_counters()
     net, conns, extra, profile = ("", 0.0, ""), [], None, ""
@@ -384,6 +440,10 @@ def main():
         now = time.monotonic()
         dt, last = now - last, now
         app = table.sample(dt, apps)
+        by_net = nets.sample(dt, table.names)
+        for k, v in by_net.items():
+            if k in app:
+                app[k].update(v)
         top_cpu = sorted(((k, v["cpu"]) for k, v in app.items()), key=lambda kv: -kv[1])[:TOP_N]
         top_mem = sorted(((k, v["ram"]) for k, v in app.items()), key=lambda kv: -kv[1])[:TOP_N]
         cores = psutil.cpu_percent(None, percpu=True)
@@ -520,12 +580,38 @@ def main():
             for k, a in sorted(app.items(), key=lambda kv: -kv[1][key])[:n]:
                 pick[k] = a
         rows = sorted(pick.items(), key=lambda kv: -(kv[1]["cpu"] + kv[1]["ram"] / 100.0))[:APPS_N + 6]
+        for key in ("io", "down", "up"):       # whoever is busy on the disk or the network is always listed
+            for k, a in sorted(app.items(), key=lambda kv: -kv[1][key])[:3]:
+                if a[key] >= 1 and all(k != x[0] for x in rows):
+                    rows.append((k, a))
         for k, a in rows:
             lines.append(row("app", a["id"], k.replace("\t", " ")[:34], a["cpu"], a["ram"], a["io"], a["n"],
                              a["thr"], a["vram"], int(time.time() - a["start"]),
                              "restart" if a["unit"] not in ("", "system") and a["mine"] and a["safe"]
                              else "end" if a["safe"] and not a["unit"] else "-",
-                             ",".join("%.0f" % v for v in table.spark.get(k, ()))))
+                             ",".join("%.0f" % v for v in table.spark.get(k, ())),
+                             a["rd"], a["wr"], a["down"], a["up"], a["conns"]))
+
+        def ident(k):
+            return "%08x" % zlib.crc32(k.encode())
+        # the same, seen from the network and from the disk: rate now, and the sum since this collector started
+        MB = 1048576.0
+        seen = []
+        for k in set(by_net) | set(nets.total):
+            v, t = by_net.get(k, {"down": 0.0, "up": 0.0, "conns": 0}), nets.total.get(k, [0, 0])
+            if v["down"] + v["up"] >= 0.05 or t[0] + t[1] > 0 or v["conns"]:
+                seen.append((k, v["down"], v["up"], v["conns"], t[0] / MB, t[1] / MB))
+        seen.sort(key=lambda x: (-(x[1] + x[2]), -(x[4] + x[5]), -x[3]))
+        for x in seen[:10]:
+            lines.append(row("napp", ident(x[0]), x[0].replace("\t", " ")[:34], x[1], x[2], x[3], x[4], x[5]))
+        lines.append(row("netu", max(0.0, down - sum(x[1] for x in seen)), max(0.0, up - sum(x[2] for x in seen))))
+        seen = []
+        for k in set(table.disk) | {k for k, a in app.items() if a["io"] >= 0.05}:
+            a, t = app.get(k, {"rd": 0.0, "wr": 0.0}), table.disk.get(k, [0, 0])
+            seen.append((k, a["rd"], a["wr"], t[0] / MB, t[1] / MB))
+        seen.sort(key=lambda x: (-(x[1] + x[2]), -(x[3] + x[4])))
+        for x in seen[:10]:
+            lines.append(row("dapp", ident(x[0]), x[0].replace("\t", " ")[:34], *x[1:]))
         try:
             with open(APPS_OUT + ".tmp", "w") as f:
                 json.dump({a["id"]: {"name": k, "unit": a["unit"], "safe": a["safe"], "pids": a["pids"]}

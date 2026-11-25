@@ -181,7 +181,17 @@ for i, n in enumerate(names):
     ram = [910, 3210, 2480, 340, 180, 1370, 620, 260, 410, 150, 60, 34, 120, 88, 40, 70, 210][i]
     sp = [max(0, cpu * (1 + .5 * math.sin(j / 3 + i)) + rnd.uniform(-2, 2)) for j in range(40)]
     L.append(row('app', '%08x' % (i + 1), n, float(cpu), float(ram), [820.0, 12.0, 4300.0, 0.0][i % 4], 1 + i % 7, 8 + i * 3, 0.0,
-                 4000 + i * 2700, 'restart' if i == 0 else '-' if n in ('cinnamon', 'Xorg', 'conky') else 'end', ints(sp)))
+                 4000 + i * 2700, 'restart' if i == 0 else '-' if n in ('cinnamon', 'Xorg', 'conky') else 'end', ints(sp),
+                 [600.0, 0.0, 3100.0, 0.0][i % 4], [220.0, 12.0, 1200.0, 0.0][i % 4], [38.0, 1450.0, 0.0, 0.0, 96.0][i % 5],
+                 [12.0, 85.0, 0.0, 0.0, 4.0][i % 5], [3, 14, 0, 0, 2][i % 5]))
+for i, (nm, dn, up, cn, tot) in enumerate((('browser', 1450.0, 85.0, 14, 2300.0), ('music', 96.0, 4.0, 2, 410.0), ('web-backend', 38.0, 12.0, 3, 95.0),
+                                           ('chat', 6.0, 2.0, 5, 44.0), ('sync', 0.0, 0.0, 3, 880.0), ('mail', 0.0, 0.0, 2, 12.0))):
+    L.append(row('napp', '%08x' % (names.index(nm) + 1), nm, dn, up, cn, tot, tot / 9))
+L.append(row('netu', 210.0, 18.0))
+for nm, rd, wr, tr, tw in (('video-editor', 3100.0, 1200.0, 5200.0, 1900.0), ('web-backend', 600.0, 220.0, 310.0, 150.0), ('browser', 0.0, 12.0, 420.0, 96.0),
+                           ('indexer', 0.0, 0.0, 2600.0, 40.0), ('backup', 0.0, 0.0, 900.0, 0.0), ('sync', 0.0, 0.0, 120.0, 310.0)):
+    L.append(row('dapp', '%08x' % (names.index(nm) + 1), nm, rd, wr, tr, tw))
+
 L += [row('h_' + k, *v) for k, v in h.items()]
 L += [row('claude', 38.0, now + 7900, 46.0, now + 3 * DAY, 'Claude', 34.0, 4.2, now),
       row('cl_t', *[now - DAY + k * 600 for k in range(144)]), row('cl_5', *[(k * 1.4) % 46 for k in range(144)]),
